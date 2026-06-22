@@ -1,0 +1,37 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+.claude/
+.impeccable/
+.playwright-mcp/
+
+# Dados locais dos usuarios (perfis de teste). Versionamos o usuarios.json de
+# proposito (dados ilustrativos do TCC, pra nao recriar perfis a cada maquina),
+# mas NUNCA os arquivos temporarios de escrita atomica (.tmp), que sao lixo
+# passageiro. A ordem importa: bloqueia a pasta, depois reabre so o arquivo certo.
+server/dados/*
+!server/dados/usuarios.json
+
+# Documentacao: versionamos so a doc tecnica em Markdown (visao + plano tecnico
+# do Companion), que faz parte do projeto. Os .docx pesados (artigo cientifico,
+# lista de componentes) ficam de fora do Git. Mesmo padrao do server/dados/.
+docs/*
+!docs/*.md
+
+*.tmp
+*.tmp.*
+.vscode/
+.idea/
+coverage/
+.cache/
+dist/
+build/
+
+# Config do firmware ESP32 com credenciais reais (Wi-Fi, senha, token, IP).
+# NUNCA versionar: cada pessoa cria o seu a partir do config.example.h da pasta.
+# Os modelos config.example.h, sim, vao para o Git (tem so placeholders).
+code/**/config.h

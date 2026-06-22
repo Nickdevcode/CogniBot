@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fluxograma — Projeto Cogni</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <header class="barra-topo">
+    <div class="barra-topo-conteudo">
+      <h1>Fluxograma — Projeto Cogni</h1>
+      <p>Desenvolvimento e integração do ecossistema educacional</p>
+    </div>
+    <nav class="nav-paginas">
+      <a href="index.html" class="nav-link nav-link--ativo">Cogni</a>
+      <a href="jogo/index.html" class="nav-link">PsyBot</a>
+    </nav>
+    <button id="btn-download" type="button" class="btn-download">
+      Baixar como PDF
+    </button>
+  </header>
+
+  <main class="whiteboard" id="whiteboard">
+    <div class="whiteboard-conteudo" id="whiteboard-conteudo">
+
+      <section class="legenda-tipos" aria-label="Legenda dos símbolos">
+        <h2>Legenda dos símbolos (ISO 5807)</h2>
+        <div class="legenda-grid">
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <rect x="2" y="2" width="116" height="46" rx="23" ry="23" class="forma forma-terminador"/>
+              <text x="60" y="30" class="texto-legenda">Terminador</text>
+            </svg>
+            <span>Início ou fim do fluxo</span>
+          </div>
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <rect x="2" y="2" width="116" height="46" class="forma forma-processo"/>
+              <text x="60" y="30" class="texto-legenda">Processo</text>
+            </svg>
+            <span>Ação ou tarefa</span>
+          </div>
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <polygon points="60,2 118,25 60,48 2,25" class="forma forma-decisao"/>
+              <text x="60" y="30" class="texto-legenda">Decisão</text>
+            </svg>
+            <span>Pergunta com caminhos</span>
+          </div>
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <polygon points="14,2 118,2 106,48 2,48" class="forma forma-io"/>
+              <text x="60" y="30" class="texto-legenda">Entrada/Saída</text>
+            </svg>
+            <span>Dado entrando ou saindo</span>
+          </div>
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <path d="M 2 4 L 118 4 L 118 40 Q 89 52 60 40 Q 31 28 2 40 Z" class="forma forma-documento"/>
+              <text x="60" y="28" class="texto-legenda">Documento</text>
+            </svg>
+            <span>Entregável gerado</span>
+          </div>
+          <div class="legenda-item">
+            <svg viewBox="0 0 120 50" class="legenda-svg">
+              <rect x="2" y="2" width="116" height="6" class="forma forma-paralelo"/>
+              <rect x="2" y="42" width="116" height="6" class="forma forma-paralelo"/>
+              <text x="60" y="30" class="texto-legenda">Paralelo</text>
+            </svg>
+            <span>Etapas simultâneas</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="fluxograma-area" id="fluxograma-area">
+        <!-- O SVG do fluxograma será injetado aqui via JS -->
+      </div>
+
+    </div>
+  </main>
+
+  <!-- jsPDF servido LOCALMENTE (de 'self'): a CSP estrita do servidor bloqueia
+       scripts de CDN externo e scripts inline. Servir local mantem a CSP forte e
+       elimina a dependencia de internet/CDN para gerar o PDF. -->
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="fluxograma.js"></script>
+  <script src="download.js"></script>
+</body>
+</html>

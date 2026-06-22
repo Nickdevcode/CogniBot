@@ -1,0 +1,27 @@
+{
+  "name": "cogni-server",
+  "version": "2.0.0",
+  "description": "Cogni - Robo Tutor de Reforco Escolar (Backend)",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch --watch-path=./modules --watch-path=./routes --watch-path=./config.js --watch-path=./index.js index.js",
+    "check": "node --eval \"const{execSync}=require('child_process');const fs=require('fs');const path=require('path');function walk(d){return fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{const p=path.join(d,e.name);if(e.name==='node_modules')return[];return e.isDirectory()?walk(p):p.endsWith('.js')?[p]:[]})}for(const f of walk('.'))execSync('node --check '+JSON.stringify(f));console.log('Sintaxe OK')\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.4.1",
+    "helmet": "^8.1.0",
+    "multer": "^2.2.0",
+    "openai": "^6.39.1",
+    "ws": "^8.20.0"
+  }
+}

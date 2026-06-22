@@ -1,0 +1,140 @@
+const API_URL = window.location.origin + '/api'
+
+async function jsonOk(resposta) {
+  const dados = await resposta.json().catch(() => ({}))
+  if (!resposta.ok) {
+    const msg = dados?.erro || `Erro ${resposta.status}`
+    throw new Error(msg)
+  }
+  return dados
+}
+
+export async function listarUsuarios() {
+  const resp = await fetch(`${API_URL}/usuarios`)
+  return jsonOk(resp)
+}
+
+export async function criarUsuario(nome) {
+  const resp = await fetch(`${API_URL}/usuarios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome }),
+  })
+  return jsonOk(resp)
+}
+
+export async function excluirUsuario(id) {
+  const resp = await fetch(`${API_URL}/usuarios/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  return jsonOk(resp)
+}
+
+export async function obterUsuario(id) {
+  const resp = await fetch(`${API_URL}/usuarios/${encodeURIComponent(id)}`)
+  return jsonOk(resp)
+}
+
+export async function resetarConversa(usuarioId) {
+  const resp = await fetch(`${API_URL}/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usuarioId }),
+  })
+  return jsonOk(resp)
+}
+
+export async function verificarSaude() {
+  const resp = await fetch(`${API_URL}/health`)
+  return jsonOk(resp)
+}
+
+export function enviarConversa({ audioBlob, usuarioId, imagem, usarRobo, signal }) {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'audio.webm')
+  formData.append('usuarioId', usuarioId)
+  if (imagem) formData.append('imagem', imagem)
+  if (usarRobo) formData.append('usarRobo', 'true')
+
+  return fetch(`${API_URL}/conversation`, {
+    method: 'POST',
+    body: formData,
+    signal,
+  })
+}
+
+export function streamStatusESP(onEstado) {
+  const url = `${API_URL}/esp/status/stream`
+  const source = new EventSource(url)
+  source.addEventListener('estado', (ev) => {
+    try {
+      onEstado(JSON.parse(ev.data))
+    } catch { /* ignora json invalido */ }
+  })
+  return () => source.close()
+}
+
+// --- Controle do robo pela interface (painel de controle) ---
+
+// Define qual perfil/usuario o robo passa a usar (memorias, idade, idioma).
+export async function definirUsuarioRobo(usuarioId) {
+  const resp = await fetch(`${API_URL}/esp/usuario`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usuarioId }),
+  })
+  return jsonOk(resp)
+}
+
+// Muta/desmuta o mic do robo (servidor descarta o audio quando mutado).
+export async function definirMicRobo(mutado) {
+  const resp = await fetch(`${API_URL}/esp/mic`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mutado }),
+  })
+  return jsonOk(resp)
+}
+
+// Liga/desliga o robo (gate). Desligado = robo mudo (nao escuta nada).
+export async function definirRoboHabilitado(habilitado) {
+  const resp = await fetch(`${API_URL}/esp/habilitar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ habilitado }),
+  })
+  return jsonOk(resp)
+}
+
+// Interrompe o robo (encerra a fala/captura atual).
+export async function interromperRobo() {
+  const resp = await fetch(`${API_URL}/esp/interromper`, { method: 'POST' })
+  return jsonOk(resp)
+}
+
+// Envia um frame da webcam do PC pro servidor (visao da Cogni no caminho do robo
+// fisico). Fire-and-forget: o pipeline do robo nao espera por isto — o frame e
+// capturado no inicio da fala e fica disponivel quando a IA roda, segundos depois.
+// Sem jsonOk pra nao lancar em rede ruim (a falha de um frame nao deve quebrar nada).
+export function enviarFrameWebcam(imagem) {
+  return fetch(`${API_URL}/esp/webcam/frame`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imagem }),
+  })
+}
+
+export const api = {
+  url: API_URL,
+  listarUsuarios,
+  criarUsuario,
+  excluirUsuario,
+  obterUsuario,
+  resetarConversa,
+  verificarSaude,
+  enviarConversa,
+  streamStatusESP,
+  definirUsuarioRobo,
+  definirMicRobo,
+  definirRoboHabilitado,
+  interromperRobo,
+  enviarFrameWebcam,
+}

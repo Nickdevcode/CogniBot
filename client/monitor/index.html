@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Monitor de Áudio — Cogni</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0B0B0F;
+      --bg-elev-1: #131318;
+      --bg-elev-2: #1A1A21;
+      --linha: #2A2A33;
+      --texto: #ECECEE;
+      --texto-2: #A1A1AA;
+      --texto-3: #6B6B75;
+      --acento: #D4B896;
+      --acento-claro: #E8D4B0;
+      --ouvindo: #8FB89A;
+      --falando: #B89B7A;
+      --erro: #C97070;
+      --fonte-display: 'Fraunces', Georgia, serif;
+      --fonte-ui: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --fonte-mono: 'JetBrains Mono', monospace;
+      color-scheme: dark;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--texto);
+      font-family: var(--fonte-ui);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 20px 60px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .topo {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .marca {
+      font-family: var(--fonte-display);
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .marca span { color: var(--acento); }
+
+    .status-conexao {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--texto-2);
+      font-family: var(--fonte-mono);
+    }
+    .ponto {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--texto-3);
+      transition: background 200ms, box-shadow 200ms;
+    }
+    .ponto.online { background: var(--ouvindo); box-shadow: 0 0 0 4px rgba(143,184,154,0.18); }
+    .ponto.offline { background: var(--erro); box-shadow: 0 0 0 4px rgba(201,112,112,0.16); }
+
+    .subtitulo {
+      width: 100%;
+      max-width: 620px;
+      color: var(--texto-3);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+
+    .cartao-principal {
+      width: 100%;
+      max-width: 620px;
+      background: var(--bg-elev-1);
+      border: 1px solid var(--linha);
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 18px 48px -24px rgba(0,0,0,0.6);
+      margin-bottom: 24px;
+    }
+
+    .ativar-area { text-align: center; padding: 16px 0 4px; }
+    .btn-ativar {
+      font-family: var(--fonte-ui);
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--acento);
+      border: none;
+      border-radius: 12px;
+      padding: 14px 28px;
+      cursor: pointer;
+      transition: background 200ms, transform 120ms;
+    }
+    .btn-ativar:hover { background: var(--acento-claro); }
+    .btn-ativar:active { transform: scale(0.97); }
+    .ativar-dica { color: var(--texto-3); font-size: 13px; margin-top: 14px; line-height: 1.5; }
+
+    .player-area { display: none; }
+    .player-area.visivel { display: block; }
+
+    .visualizador {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 70px;
+      margin-bottom: 22px;
+    }
+    .barra-viz {
+      width: 5px;
+      height: 8px;
+      border-radius: 3px;
+      background: var(--linha);
+      transition: height 120ms ease, background 200ms;
+    }
+    .visualizador.tocando .barra-viz { background: var(--falando); }
+
+    .rotulo-campo {
+      font-family: var(--fonte-mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--texto-3);
+      margin-bottom: 6px;
+    }
+    .texto-fala {
+      font-size: 16px;
+      line-height: 1.55;
+      color: var(--texto);
+      margin-bottom: 18px;
+      min-height: 22px;
+    }
+    .texto-fala.vazio { color: var(--texto-3); font-style: italic; }
+    .texto-transcricao {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--texto-2);
+      padding: 12px 14px;
+      background: var(--bg-elev-2);
+      border-radius: 10px;
+      border-left: 2px solid var(--ouvindo);
+      margin-bottom: 20px;
+    }
+    .texto-transcricao.escondido { display: none; }
+
+    .controles { display: flex; align-items: center; gap: 14px; }
+    .btn-replay {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--fonte-ui); font-size: 14px;
+      color: var(--texto); background: var(--bg-elev-2);
+      border: 1px solid var(--linha); border-radius: 10px;
+      padding: 10px 16px; cursor: pointer; transition: border-color 200ms, background 200ms;
+    }
+    .btn-replay:hover { border-color: var(--acento); }
+    .btn-replay:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .toggle-auto { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texto-2); cursor: pointer; user-select: none; }
+    .toggle-auto input { accent-color: var(--acento); width: 16px; height: 16px; cursor: pointer; }
+
+    .historico { width: 100%; max-width: 620px; }
+    .historico-titulo {
+      font-family: var(--fonte-mono); font-size: 11px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--texto-3); margin-bottom: 12px;
+    }
+    .item-hist {
+      background: var(--bg-elev-1);
+      border: 1px solid var(--linha);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      animation: surgir 320ms cubic-bezier(0.34,1.56,0.64,1);
+    }
+    @keyframes surgir { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .item-hist-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .item-hist-origem {
+      font-family: var(--fonte-mono); font-size: 10px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--acento);
+      padding: 3px 8px; background: rgba(212,184,150,0.1); border-radius: 5px;
+    }
+    .item-hist-hora { font-family: var(--fonte-mono); font-size: 11px; color: var(--texto-3); }
+    .item-hist-texto { font-size: 14px; line-height: 1.5; color: var(--texto); margin-bottom: 4px; }
+    .item-hist-transc { font-size: 12px; color: var(--texto-3); }
+    .item-hist-btn {
+      margin-top: 8px; font-family: var(--fonte-ui); font-size: 12px;
+      color: var(--texto-2); background: none; border: 1px solid var(--linha);
+      border-radius: 7px; padding: 5px 11px; cursor: pointer; transition: border-color 200ms;
+    }
+    .item-hist-btn:hover { border-color: var(--acento); color: var(--texto); }
+    .hist-vazio { color: var(--texto-3); font-size: 13px; font-style: italic; }
+
+    .cartao-teste {
+      width: 100%; max-width: 620px;
+      background: var(--bg-elev-1);
+      border: 1px solid var(--linha);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+    }
+    .teste-dica { color: var(--texto-3); font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+    .teste-linha { display: flex; gap: 10px; flex-wrap: wrap; }
+    .teste-input {
+      flex: 1; min-width: 200px;
+      font-family: var(--fonte-ui); font-size: 14px;
+      color: var(--texto); background: var(--bg-elev-2);
+      border: 1px solid var(--linha); border-radius: 9px;
+      padding: 11px 13px;
+    }
+    .teste-input:focus { outline: none; border-color: var(--acento); }
+    .btn-falar {
+      font-family: var(--fonte-ui); font-size: 14px; font-weight: 500;
+      color: var(--bg); background: var(--acento);
+      border: none; border-radius: 9px;
+      padding: 11px 18px; cursor: pointer; white-space: nowrap;
+      transition: background 200ms, opacity 200ms;
+    }
+    .btn-falar:hover { background: var(--acento-claro); }
+    .btn-falar:disabled { opacity: 0.5; cursor: not-allowed; }
+    .teste-status { font-size: 13px; color: var(--texto-2); margin-top: 10px; min-height: 18px; font-family: var(--fonte-mono); }
+    .teste-status.erro { color: var(--erro); }
+    .teste-status.ok { color: var(--ouvindo); }
+  </style>
+</head>
+<body>
+  <div class="topo">
+    <div class="marca">Cogni <span>· Monitor</span></div>
+    <div class="status-conexao">
+      <span class="ponto" id="ponto-status"></span>
+      <span id="texto-status">conectando…</span>
+    </div>
+  </div>
+  <p class="subtitulo">
+    Ouça aqui no PC as respostas que a Cogni envia ao robô — útil enquanto o alto-falante físico não está montado.
+    Fale perto do robô e a resposta toca automaticamente nesta página.
+  </p>
+
+  <div class="cartao-principal">
+    <div class="ativar-area" id="ativar-area">
+      <button class="btn-ativar" id="btn-ativar">🔊 Ativar áudio nesta página</button>
+      <p class="ativar-dica">
+        O navegador exige um clique antes de tocar som automaticamente.<br>
+        Clique uma vez e pode esquecer — tudo passa a tocar sozinho.
+      </p>
+    </div>
+
+    <div class="player-area" id="player-area">
+      <div class="visualizador" id="visualizador">
+        <span class="barra-viz"></span><span class="barra-viz"></span><span class="barra-viz"></span>
+        <span class="barra-viz"></span><span class="barra-viz"></span><span class="barra-viz"></span>
+        <span class="barra-viz"></span><span class="barra-viz"></span><span class="barra-viz"></span>
+        <span class="barra-viz"></span><span class="barra-viz"></span><span class="barra-viz"></span>
+      </div>
+
+      <div class="rotulo-campo">Cogni respondeu</div>
+      <div class="texto-fala vazio" id="texto-fala">Aguardando a primeira resposta…</div>
+
+      <div class="texto-transcricao escondido" id="texto-transcricao"></div>
+
+      <div class="controles">
+        <button class="btn-replay" id="btn-replay" disabled>↻ Repetir última</button>
+        <label class="toggle-auto">
+          <input type="checkbox" id="toggle-auto" checked>
+          Tocar automaticamente
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="cartao-teste">
+    <div class="historico-titulo">Teste de fala (sem microfone)</div>
+    <p class="teste-dica">Faça o robô falar um texto direto, sem precisar do microfone. Útil pra testar o alto-falante.</p>
+    <div class="teste-linha">
+      <input type="text" id="teste-texto" class="teste-input" value="Oi! Teste de audio do robo Cogni. Um, dois, tres." maxlength="200">
+      <button id="btn-falar" class="btn-falar">🔊 Fazer robô falar</button>
+    </div>
+    <div id="teste-status" class="teste-status"></div>
+  </div>
+
+  <div class="historico">
+    <div class="historico-titulo">Histórico da sessão</div>
+    <div id="lista-historico"><p class="hist-vazio">Nenhuma resposta ainda nesta sessão.</p></div>
+  </div>
+
+  <script src="monitor.js" defer></script>
+</body>
+</html>

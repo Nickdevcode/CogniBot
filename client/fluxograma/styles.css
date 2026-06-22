@@ -1,0 +1,419 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #e8eaf0;
+  color: #1a1a2e;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.barra-topo {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #ffffff;
+  border-bottom: 1px solid #d8dbe4;
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.barra-topo-conteudo h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: -0.01em;
+}
+
+.barra-topo-conteudo p {
+  font-size: 13px;
+  color: #6b7080;
+  margin-top: 2px;
+}
+
+.nav-paginas {
+  display: flex;
+  gap: 4px;
+  background: #f1f3f7;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid #e4e6ed;
+}
+
+.nav-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7080;
+  padding: 8px 16px;
+  border-radius: 7px;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: #e4e6ed;
+  color: #1a1a2e;
+}
+
+.nav-link--ativo {
+  background: #ffffff;
+  color: #1a1a2e;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.nav-link--ativo:hover {
+  background: #ffffff;
+}
+
+.btn-download {
+  background: #1a1a2e;
+  color: #ffffff;
+  border: none;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-download:hover {
+  background: #2d2d4a;
+  transform: translateY(-1px);
+}
+
+.btn-download:active {
+  transform: translateY(0);
+}
+
+.btn-download:disabled {
+  background: #6b7080;
+  cursor: wait;
+}
+
+.whiteboard {
+  padding: 32px;
+  display: flex;
+  justify-content: center;
+}
+
+.whiteboard-conteudo {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 48px 56px;
+  width: 100%;
+  max-width: 1400px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e4e6ed;
+}
+
+.legenda-tipos {
+  margin-bottom: 48px;
+  padding-bottom: 32px;
+  border-bottom: 2px dashed #d8dbe4;
+}
+
+.legenda-tipos h2 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7080;
+  margin-bottom: 20px;
+}
+
+.legenda-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.legenda-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+}
+
+.legenda-svg {
+  width: 120px;
+  height: 50px;
+  flex-shrink: 0;
+}
+
+.legenda-item span {
+  font-size: 13px;
+  color: #4a4f5e;
+  font-weight: 500;
+}
+
+.forma {
+  stroke-width: 2;
+  fill: #ffffff;
+}
+
+.forma-terminador {
+  stroke: #5b6cff;
+  fill: #eef0ff;
+}
+
+.forma-processo {
+  stroke: #2d3142;
+  fill: #ffffff;
+}
+
+.forma-decisao {
+  stroke: #f59e0b;
+  fill: #fff8eb;
+}
+
+.forma-io {
+  stroke: #10b981;
+  fill: #ecfdf5;
+}
+
+.forma-documento {
+  stroke: #8b5cf6;
+  fill: #f5f0ff;
+}
+
+.forma-paralelo {
+  stroke: #ec4899;
+  fill: #fdf2f8;
+}
+
+.texto-legenda {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  fill: #1a1a2e;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.fluxograma-area {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.fluxograma-svg {
+  display: block;
+  margin: 0 auto;
+  width: 100%;
+  height: auto;
+  max-width: 1280px;
+}
+
+.bloco-texto {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  fill: #1a1a2e;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.bloco-texto-bold {
+  font-weight: 700;
+}
+
+.bloco-texto-pequeno {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.etapa-titulo {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  fill: #5b6cff;
+  text-anchor: start;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.etapa-subtitulo {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  fill: #6b7080;
+  text-anchor: start;
+}
+
+.linha-etapa {
+  stroke: #d8dbe4;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.conector {
+  stroke: #2d3142;
+  stroke-width: 2;
+  fill: none;
+}
+
+.conector-rotulo {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  fill: #2d3142;
+  text-anchor: middle;
+}
+
+.conector-rotulo-bg {
+  fill: #ffffff;
+  stroke: #d8dbe4;
+  stroke-width: 1;
+}
+
+.fluxo-titulo {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  fill: #ffffff;
+  text-anchor: middle;
+}
+
+.fluxo-caixa {
+  fill: #2d3142;
+  stroke: none;
+}
+
+.resumo-caixa {
+  fill: #fff8eb;
+  stroke: #f59e0b;
+  stroke-width: 2;
+  rx: 8;
+}
+
+.resumo-texto {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  fill: #1a1a2e;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.resumo-seta {
+  stroke: #f59e0b;
+  stroke-width: 2.5;
+  fill: none;
+}
+
+@media (max-width: 768px) {
+  .barra-topo {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+  }
+
+  .btn-download {
+    width: 100%;
+  }
+
+  .whiteboard {
+    padding: 16px;
+  }
+
+  .whiteboard-conteudo {
+    padding: 24px 16px;
+  }
+}
+
+/* ============================================================
+   Polish leve (fluxograma) — microinterações e foco
+   ============================================================ */
+
+.btn-download {
+  position: relative;
+  box-shadow: 0 4px 14px -6px rgba(26, 26, 46, 0.35);
+}
+
+.btn-download:hover {
+  box-shadow: 0 8px 22px -8px rgba(26, 26, 46, 0.45);
+}
+
+.btn-download:focus-visible,
+.nav-link:focus-visible {
+  outline: 2px solid #5b6cff;
+  outline-offset: 3px;
+}
+
+.nav-link {
+  position: relative;
+}
+
+.nav-link--ativo::after {
+  content: '';
+  position: absolute;
+  inset: auto 14px -1px 14px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #5b6cff, transparent);
+  border-radius: 999px;
+}
+
+.whiteboard-conteudo {
+  transition: box-shadow 280ms ease;
+}
+
+.whiteboard-conteudo:hover {
+  box-shadow: 0 10px 36px -16px rgba(26, 26, 46, 0.12);
+}
+
+.legenda-item {
+  border-radius: 8px;
+  transition: background 180ms ease;
+}
+
+.legenda-item:hover {
+  background: rgba(91, 108, 255, 0.04);
+}
+
+.forma {
+  transition: filter 200ms ease;
+}
+
+.forma:hover {
+  filter: drop-shadow(0 4px 10px rgba(26, 26, 46, 0.12));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-download,
+  .nav-link,
+  .whiteboard-conteudo,
+  .legenda-item,
+  .forma {
+    transition: none !important;
+  }
+}
+
+@media print {
+  .barra-topo,
+  .btn-download,
+  .nav-paginas {
+    display: none !important;
+  }
+
+  .whiteboard {
+    padding: 0;
+  }
+
+  .whiteboard-conteudo {
+    box-shadow: none;
+    border: 0;
+    padding: 0;
+  }
+}
