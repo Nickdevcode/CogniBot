@@ -129,6 +129,20 @@ export function enviarOlhar(x, y, t) {
   }).catch(() => {})
 }
 
+// PERCEPCAO da crianca vista pela webcam (emocao facial ou gesto de mao), ex.:
+// 'crianca-feliz', 'gesto-joinha'. O SERVIDOR e quem decide qual reacao o robo faz (a
+// "alma" mora la, em esp-visao.js). Fire-and-forget, igual ao enviarOlhar: o cliente ja
+// filtra (histerese/cooldown), entao isto sai raramente e perder um envio nao tem
+// consequencia - a proxima percepcao chega logo.
+export function enviarReacaoVisual(percepcao) {
+  return fetch(`${API_URL}/esp/reacao-visual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ percepcao }),
+    keepalive: true,
+  }).catch(() => {})
+}
+
 // Avisa o servidor que a webcam do PC ligou/desligou. A camera vive aqui no
 // navegador, entao sem este aviso o robo nao teria como reagir ao botao de camera.
 export function notificarCameraRobo(ativa) {
@@ -167,5 +181,6 @@ export const api = {
   interromperRobo,
   notificarCameraRobo,
   enviarOlhar,
+  enviarReacaoVisual,
   enviarFrameWebcam,
 }

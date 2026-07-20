@@ -340,6 +340,16 @@ async function falarRespostaStream(sessao, texto, idadeUsuario, callbacks, durac
         .then((emo) => { if (emo && !sessao.interrompido) emitirReacao(emo) })
         .catch(() => {})
     }
+
+    // TOM DA FALA: se a Cogni fez uma PERGUNTA, o robo fica expectante quando terminar de
+    // falar (olhando pra crianca, esperando a resposta); uma exclamacao deixa a saida da
+    // fala mais animada. Vai pelo mesmo canal das reacoes, mas o firmware trata 'tom-*'
+    // como um estado PENDENTE aplicado ao SAIR do "falando" - nao como um icone imediato
+    // (que brigaria com o rosto que ja esta falando). Olhamos a cauda para tolerar um
+    // emoji ou aspas no fim ("Voce entendeu? 😊"), sem varrer perguntas no meio do texto.
+    const cauda = resposta.trimEnd().slice(-6)
+    if (cauda.includes('?')) emitirReacao('tom-pergunta')
+    else if (cauda.includes('!')) emitirReacao('tom-exclamacao')
   }
 
   // Espera todos os TTS em voo e despacha o que faltou, na ordem.

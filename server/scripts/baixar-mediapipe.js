@@ -1,11 +1,20 @@
-// Baixa a biblioteca do MediaPipe (detector de rosto) para client/vendor/mediapipe.
+// Baixa a biblioteca do MediaPipe (visao) para client/vendor/mediapipe.
+//
+// O QUE vem aqui:
+//   - vision_bundle.mjs + WASM: o runtime do @mediapipe/tasks-vision.
+//   - face_landmarker.task: rosto com 478 landmarks + 52 blendshapes. UM detector
+//     que da tanto a POSICAO do rosto (os olhos do robo seguem a crianca) quanto a
+//     EMOCAO dela (sorriso/bravo/triste/surpresa, via blendshapes). Substituiu o
+//     antigo blaze_face_short_range (que so dava a caixa do rosto, sem emocao).
+//   - gesture_recognizer.task: gestos de mao (joinha, tchau, coracao...). E um 2o
+//     detector, mais pesado - por isso roda em frequencia menor no cliente.
 //
 // Por que vendorizar em vez de usar CDN: o robo roda em rede local e o painel pode
 // ser aberto sem internet (numa apresentacao, por exemplo). Servindo os arquivos do
-// proprio Express, o rastreio de rosto funciona offline e nao depende de um CDN
-// estar no ar na hora errada.
+// proprio Express, a visao funciona offline e nao depende de um CDN estar no ar na
+// hora errada.
 //
-// Por que NAO versionar no Git: sao ~11MB de WASM compilado - peso demais para o
+// Por que NAO versionar no Git: sao ~21MB de WASM + modelos - peso demais para o
 // repositorio, e nao e codigo nosso. Por isso client/vendor/ esta no .gitignore e
 // este script existe: `npm run vendor` reconstroi a pasta em qualquer maquina.
 //
@@ -15,11 +24,14 @@ const fs = require('fs')
 const path = require('path')
 
 // Fixado de proposito: uma troca de versao do MediaPipe deve ser uma decisao
-// consciente (a API do FaceDetector ja mudou entre releases), nunca algo que
-// acontece sozinho porque alguem rodou o script num dia diferente.
+// consciente (a API ja mudou entre releases), nunca algo que acontece sozinho
+// porque alguem rodou o script num dia diferente.
 const VERSAO = '0.10.35'
 const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSAO}`
-const MODELO = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite'
+// Modelos oficiais do Google (build float16, mais leve). O caminho .../float16/1/...
+// e o versionado do Google - a mesma familia de URL do antigo blaze_face.
+const MODELO_ROSTO = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'
+const MODELO_GESTO = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
 
 const DESTINO = path.join(__dirname, '..', '..', 'client', 'vendor', 'mediapipe')
 
@@ -30,7 +42,8 @@ const ARQUIVOS = [
   { url: `${CDN}/vision_bundle.mjs`, destino: 'vision_bundle.mjs' },
   { url: `${CDN}/wasm/vision_wasm_internal.js`, destino: path.join('wasm', 'vision_wasm_internal.js') },
   { url: `${CDN}/wasm/vision_wasm_internal.wasm`, destino: path.join('wasm', 'vision_wasm_internal.wasm') },
-  { url: MODELO, destino: 'blaze_face_short_range.tflite' },
+  { url: MODELO_ROSTO, destino: 'face_landmarker.task' },
+  { url: MODELO_GESTO, destino: 'gesture_recognizer.task' },
 ]
 
 async function baixar({ url, destino }) {
@@ -49,11 +62,11 @@ async function main() {
   for (const arquivo of ARQUIVOS) {
     await baixar(arquivo)
   }
-  console.log('Pronto. O rastreio de rosto ja funciona offline.')
+  console.log('Pronto. Rastreio de rosto, emocao facial e gestos ja funcionam offline.')
 }
 
 main().catch((err) => {
   console.error(`Falhou: ${err.message}`)
-  console.error('Sem esses arquivos o painel continua funcionando - so o rastreio de rosto fica desligado.')
+  console.error('Sem esses arquivos o painel continua funcionando - so a visao (rosto/emocao/gestos) fica desligada.')
   process.exit(1)
 })

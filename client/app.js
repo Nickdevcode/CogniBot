@@ -763,12 +763,17 @@ async function processarStream(resposta, inicio) {
 // a visão da Cogni — só o olhar não acompanha.
 async function ligarRastreioDeRosto() {
   if (!estaEmModoRobo()) return
-  await iniciarRastreio(elementos.cameraVideo, (pos) => {
-    // Rosto fora de vista: paramos de enviar e o robô volta sozinho ao normal quando
-    // a última posição envelhece. É esse mesmo silêncio que, se durar, faz ele se
-    // sentir ignorado e sair procurando a criança.
-    if (!pos) return
-    api.enviarOlhar(pos.x, pos.y, pos.t)
+  await iniciarRastreio(elementos.cameraVideo, {
+    onOlhar: (pos) => {
+      // Rosto fora de vista: paramos de enviar e o robô volta sozinho ao normal quando
+      // a última posição envelhece. É esse mesmo silêncio que, se durar, faz ele se
+      // sentir ignorado e sair procurando a criança.
+      if (!pos) return
+      api.enviarOlhar(pos.x, pos.y, pos.t)
+    },
+    // Emoção da criança (sorriu/brava/triste/surpresa) ou gesto de mão (joinha/tchau/
+    // coração...). O cliente só relata o que viu; o servidor decide a reação do robô.
+    onExpressao: (percepcao) => api.enviarReacaoVisual(percepcao),
   })
 }
 

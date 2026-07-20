@@ -889,7 +889,7 @@ function enviarExpressaoParaEsp(ws = null) {
 
 // Geometria PADRAO dos olhos: os mesmos numeros de fabrica da RoboEyes. Um perfil sem
 // rosto salvo cai aqui, e o robo fica com a cara original.
-const ROSTO_PADRAO = { largura: 36, altura: 36, raio: 8, espaco: 10, sobrancelhas: true }
+const ROSTO_PADRAO = { largura: 36, altura: 36, raio: 8, espaco: 10, sobrancelhas: false }
 
 // Envia ao robo a geometria dos olhos que a crianca desenhou no Companion. Fica no
 // perfil (campo `rostoRobo`), que ja e hidratado do Supabase pelo caminho normal de
@@ -912,7 +912,7 @@ function enviarRostoParaEsp(ws = null) {
     altura: Number(rosto.altura) || ROSTO_PADRAO.altura,
     raio: Number.isFinite(Number(rosto.raio)) ? Number(rosto.raio) : ROSTO_PADRAO.raio,
     espaco: Number.isFinite(Number(rosto.espaco)) ? Number(rosto.espaco) : ROSTO_PADRAO.espaco,
-    sobrancelhas: rosto.sobrancelhas !== false,
+    sobrancelhas: rosto.sobrancelhas === true,
   }
   if (ws) return enviarComandoParaConexao(ws, 'rosto', payload)
   return enviarComando('rosto', payload)

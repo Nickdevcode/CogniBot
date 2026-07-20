@@ -1,166 +1,31 @@
 {
-  "usuario_1782156984303_187e0a": {
-    "id": "usuario_1782156984303_187e0a",
-    "nome": "João",
-    "role": "estudante",
-    "idade": 10,
-    "serie": "5º ano",
-    "materiaFavorita": "geografia",
-    "materiaDificil": "matematica",
-    "comoAprende": "De forma extremamente didática, com perguntas ao final de toda a explicação e validação do aprendizado.",
-    "hobbies": "Jogar videogame, desenhar e brincar com os amigos.",
-    "estiloLinguagem": "Casual, leve, descontraído.",
+  "usuario_1784411200230_460922": {
+    "id": "usuario_1784411200230_460922",
+    "nome": "nick",
+    "role": "desenvolvedor",
+    "idade": null,
+    "serie": null,
+    "materiaFavorita": null,
+    "materiaDificil": null,
+    "comoAprende": null,
+    "hobbies": null,
+    "estiloLinguagem": "informal e direto",
     "onboardingCompleto": true,
     "memorias": [
-      "Brigou com o melhor amigo.",
-      "Foi muito mal na escola.",
-      "Joga Forza Horizon 6 no PC e Minecraft com os amigos.",
-      "Gosta de Fórmula 1.",
-      "Gosta do piloto Gabriel Bortoleto, que corre pela equipe Audi F1.",
-      "Assina o aplicativo F1 TV e tem multi-view e conversas de rádio.",
-      "Deseja assistir ao Grande Prêmio de São Paulo ao vivo no Autódromo de Interlagos.",
-      "João teve aula de ciências e aprendeu sobre o sistema solar."
+      "Gosta de Fórmula 1"
     ],
     "idiomaNativo": "pt",
-    "idiomasEstudando": [
-      {
-        "nivel": "A2",
-        "idioma": "en",
-        "criadoEm": "2026-06-22T19:48:30.710Z",
-        "ultimaPratica": "2026-06-22T21:28:05.437Z",
-        "palavrasVistas": [
-          {
-            "termo": "weekend",
-            "visto": "2026-06-22T19:48:30.711Z",
-            "traducao": "fim de semana"
-          },
-          {
-            "termo": "homework",
-            "visto": "2026-06-22T19:48:30.711Z",
-            "traducao": "dever de casa"
-          },
-          {
-            "termo": "tasks",
-            "visto": "2026-06-22T19:48:30.711Z",
-            "traducao": "tarefas"
-          },
-          {
-            "termo": "video game",
-            "visto": "2026-06-22T19:48:55.274Z",
-            "traducao": "jogo de vídeo"
-          },
-          {
-            "termo": "playing",
-            "visto": "2026-06-22T19:50:46.584Z",
-            "traducao": "jogando"
-          },
-          {
-            "termo": "PC",
-            "visto": "2026-06-22T19:50:46.584Z",
-            "traducao": "computador"
-          },
-          {
-            "termo": "Formula 1",
-            "visto": "2026-06-22T19:52:03.842Z",
-            "traducao": "Fórmula 1"
-          },
-          {
-            "termo": "driver",
-            "visto": "2026-06-22T19:52:26.745Z",
-            "traducao": "piloto"
-          },
-          {
-            "termo": "raced",
-            "visto": "2026-06-22T19:52:26.745Z",
-            "traducao": "correu"
-          },
-          {
-            "termo": "team",
-            "visto": "2026-06-22T19:52:26.745Z",
-            "traducao": "equipe"
-          },
-          {
-            "termo": "pilot",
-            "visto": "2026-06-22T19:52:58.848Z",
-            "traducao": "piloto"
-          },
-          {
-            "termo": "hard",
-            "visto": "2026-06-22T19:52:58.848Z",
-            "traducao": "difícil"
-          },
-          {
-            "termo": "successful",
-            "visto": "2026-06-22T19:52:58.848Z",
-            "traducao": "bem-sucedido"
-          },
-          {
-            "termo": "regulations",
-            "visto": "2026-06-22T19:54:08.021Z",
-            "traducao": "regulamentações"
-          },
-          {
-            "termo": "tired",
-            "visto": "2026-06-22T19:54:08.021Z",
-            "traducao": "cansativo"
-          },
-          {
-            "termo": "boring",
-            "visto": "2026-06-22T19:54:08.021Z",
-            "traducao": "enjoativo"
-          },
-          {
-            "termo": "repetitive",
-            "visto": "2026-06-22T19:54:08.021Z",
-            "traducao": "tedioso"
-          },
-          {
-            "termo": "next",
-            "visto": "2026-06-22T19:55:24.994Z",
-            "traducao": "próxima"
-          },
-          {
-            "termo": "race",
-            "visto": "2026-06-22T19:55:24.994Z",
-            "traducao": "corrida"
-          },
-          {
-            "termo": "search",
-            "visto": "2026-06-22T19:55:24.994Z",
-            "traducao": "procurar"
-          },
-          {
-            "termo": "say",
-            "visto": "2026-06-22T19:55:24.994Z",
-            "traducao": "dizer"
-          },
-          {
-            "termo": "Grand Prix",
-            "visto": "2026-06-22T19:56:09.298Z",
-            "traducao": "Grande Prêmio"
-          },
-          {
-            "termo": "regulation",
-            "visto": "2026-06-22T19:56:09.298Z",
-            "traducao": "regulamentação"
-          },
-          {
-            "termo": "looking forward",
-            "visto": "2026-06-22T19:56:09.298Z",
-            "traducao": "aguardando ansiosamente"
-          },
-          {
-            "termo": "racing",
-            "traducao": "corrida",
-            "visto": "2026-06-22T21:28:05.437Z"
-          }
-        ],
-        "vezesPraticado": 16
-      }
-    ],
-    "promptPersonalizado": "",
-    "codigoPareamento": "QFEEZU",
-    "criadoEm": "2026-06-22T19:36:24.303+00:00",
-    "ultimoAcesso": "2026-06-22T21:38:55.067Z"
+    "idiomasEstudando": [],
+    "promptPersonalizado": null,
+    "rostoRobo": {
+      "largura": 36,
+      "altura": 36,
+      "raio": 8,
+      "espaco": 10,
+      "sobrancelhas": false
+    },
+    "codigoPareamento": "Z5FZM4",
+    "criadoEm": "2026-07-18T21:46:40.23+00:00",
+    "ultimoAcesso": "2026-07-20T21:22:30.738Z"
   }
 }

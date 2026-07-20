@@ -122,6 +122,10 @@
 // pelo servidor pelo conteudo da conversa. Passado esse tempo, os olhos voltam ao
 // rosto de estado (ouvindo/pensando/falando/idle).
 #define COGNI_REACAO_DURACAO_MS    2200UL
+// EMPATIA: quando a webcam ve a crianca triste/brava, o robo faz a cara "preocupada" por
+// este tempo (fase "espelho") e o servidor manda logo depois (~1,2s) a fase "anima"
+// (amor/piscadela). Deixe um pouco acima de 1200 para nao piscar o rosto normal no vao.
+#define COGNI_PREOCUPADO_DURACAO_MS 1400UL
 // Feedback de COMANDO (mic, pausa, reset, camera) e mais curto de proposito: e um
 // "recebido!", nao uma emocao pra saborear.
 #define COGNI_COMANDO_DURACAO_MS   1400UL
@@ -146,6 +150,11 @@
 // Menor = mais "vivo"/agitado; maior = mais calmo. Aumente se achar que anima demais.
 #define COGNI_IDLE_ANIM_MIN_MS     6000UL
 #define COGNI_IDLE_ANIM_MAX_MS     15000UL
+// ENGAJADO COM O ROSTO: quando a webcam esta vendo a crianca e o robo esta seguindo o
+// olhar dela, as espontaneas ficam MAIS RARAS (o intervalo acima e multiplicado por este
+// fator) e as micro-historias sao suspensas - engajado, ele nao "surta" sozinho. 1 = sem
+// mudanca; 3 = tres vezes mais espacadas. Suba se quiser ele ainda mais focado na crianca.
+#define COGNI_ENGAJADO_ANIM_FATOR  3
 
 // -----------------------------------------------------------------------
 // ENVELOPE DA FALA (os olhos pulsam no ritmo da propria voz)
@@ -191,6 +200,21 @@
 // SENTIR-SE IGNORADO: depois de ter visto um rosto, se ele sumir do quadro por este
 // tempo o robo procura em volta e fica tristinho. So vale com a camera ligada.
 #define COGNI_IGNORADO_MS          12000UL
+// CONTATO VISUAL MUTUO: quando a crianca olha DE FRENTE pra camera (rosto centralizado e
+// perto) e sustenta, o robo "reconhece" o olhar com uma piscada e um pingo de bom humor.
+// TOLERANCIA = folga em volta do centro (milesimos); TAM_MIN = tamanho minimo do rosto
+// (perto o bastante pra ser proposital); MS = tempo sustentado; COOLDOWN = descanso entre um
+// reconhecimento e o proximo (senao viraria tique).
+#define COGNI_CONTATO_TOLERANCIA   130
+#define COGNI_CONTATO_TAM_MIN      250
+#define COGNI_CONTATO_MS           1500UL
+#define COGNI_CONTATO_COOLDOWN_MS  15000UL
+// DESATENCAO NA CONVERSA: se a conversa rolava ha pouco, a camera esta ligada, o robo ja viu
+// a crianca e o rosto some por este tempo, ele da UMA olhadela curiosa de "ei, ta comigo?"
+// (uma vez por sumico). E a feature mais sensivel a calibrar no robo real - se der falso
+// positivo (a crianca so virou pra pegar um lapis), ponha 0 em ATIVA pra desligar.
+#define COGNI_DESATENCAO_ATIVA     1
+#define COGNI_DESATENCAO_MS        6000UL
 
 // -----------------------------------------------------------------------
 // MOTOR DE EMOCAO (humor que persiste e decai, em vez de reacoes avulsas)
@@ -205,14 +229,22 @@
 // Quanto o humor precisa se afastar do neutro para comecar a aparecer no rosto
 // (sobrancelhas, curvatura). Evita que ruidinho de humor fique mexendo a cara toda hora.
 #define COGNI_EMOCAO_LIMIAR        18
+// HUMOR DE LONGO PRAZO: alem do humor que decai em ~1 min, o robo mantem um HUMOR-BASE que
+// caminha DEVAGAR (ao longo de minutos) rumo ao clima geral da conversa - e e pra ele que o
+// humor volta ao decair, em vez de sempre pro zero. Um dia de elogios deixa o robo de bom
+// humor "de fundo". Este e o teto (+/-) de quanto o base pode se afastar do neutro; ele volta
+// sozinho ao zero sem estimulo, entao nunca gruda num extremo. 0 desliga (volta a decair pro zero).
+#define COGNI_HUMOR_BASE_MAX       25
 
 // -----------------------------------------------------------------------
 // SOBRANCELHAS
 // -----------------------------------------------------------------------
-// Duas barrinhas acima dos olhos. E o maior ganho de expressividade por pixel gasto:
-// com elas o rosto distingue bravo, triste, curioso e surpreso, coisa que os olhos
-// sozinhos nao dao conta. Ligue/desligue e ajuste a grossura e o afastamento do olho.
-#define COGNI_SOBRANCELHA_LIGADA   1
+// Duas barrinhas acima dos olhos. Em teste visual nao ficaram boas, entao vem
+// DESLIGADAS por decisao de projeto - o codigo de desenho fica intacto e dormente, e
+// religar e so trocar 0 por 1. As reacoes de emocao da crianca (feliz/triste/preocupado)
+// nao dependem delas: usam mood + posicao do olhar. Se um dia quiser dar mais leitura ao
+// "preocupado"/"bravo", ligar aqui e o caminho - mas o padrao respeita o teste visual.
+#define COGNI_SOBRANCELHA_LIGADA   0
 #define COGNI_SOBRANCELHA_GROSSURA 3    // altura da barra, em pixels
 #define COGNI_SOBRANCELHA_FOLGA    5    // distancia acima do topo do olho
 #define COGNI_SOBRANCELHA_LARGURA  26   // comprimento da barra

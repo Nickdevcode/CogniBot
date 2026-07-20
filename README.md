@@ -207,13 +207,13 @@ npm install
 
 Isso baixa tudo que o servidor precisa (uma vez só). ⏳
 
-Em seguida, baixe a biblioteca que faz **os olhos do robô seguirem a criança** (detector de rosto do MediaPipe, ~11 MB):
+Em seguida, baixe a biblioteca de **visão** do MediaPipe (~21 MB) — é ela que faz os olhos do robô **seguirem a criança**, **lerem a emoção dela** (sorriso, bravo, triste, surpresa) e **reconhecerem gestos de mão** (joinha, tchau, coração):
 
 ```bash
 npm run vendor
 ```
 
-> 🤔 **Por que num comando separado?** São 11 MB de WebAssembly compilado — peso demais pra deixar no Git, e não é código nosso. O comando baixa tudo pra `client/vendor/` (que está no `.gitignore`) e a partir daí **funciona offline**, sem depender de CDN na hora de apresentar. Se você pular este passo, tudo continua funcionando — só o rastreio de rosto fica desligado. 👍
+> 🤔 **Por que num comando separado?** São ~21 MB de WebAssembly + modelos (o `face_landmarker`, que dá posição e emoção, e o `gesture_recognizer`, dos gestos) — peso demais pra deixar no Git, e não é código nosso. O comando baixa tudo pra `client/vendor/` (que está no `.gitignore`) e a partir daí **funciona offline**, sem depender de CDN na hora de apresentar. Se você pular este passo, tudo continua funcionando — só a visão (rosto/emoção/gestos) fica desligada. 👍
 
 ### 4️⃣ Ligar o servidor
 
@@ -401,12 +401,18 @@ O robô tem **olhos animados** numa telinha OLED, e eles não ficam parados espe
 | 😴 **Desconectado ou 2 min parado** | Dormem. Qualquer conversa, botão ou reconexão acorda na hora |
 | 👂 **Ouvindo** | Atentos, olhando pra frente |
 | 🤔 **Pensando** | Olham pra cima, pensativos |
-| 🔎 **Pesquisando na web** | Varredura horizontal contínua, tipo scanner |
+| 🔎 **Pesquisando na web** | Os olhos **"leem"**: varrem da esquerda pra direita, descem uma linha e voltam ao topo, como quem procura num texto |
 | 🗣️ **Falando** | **Pulsam no ritmo da própria voz** — a altura do olho acompanha a amplitude do áudio que está tocando naquele instante |
 | 💜 **Reagindo ao papo** | Corações num elogio, risada numa piada, estrelinhas ao aprender algo novo |
 | 🎛️ **Comando do painel** | Ícone central: microfone riscado, pausa, seta de recomeçar, câmera com flash… |
 | 📐 **Assunto da conversa** | O ícone da matéria aparece antes da resposta (soma, erlenmeyer, livro, ampulheta, globo, balões de fala) |
-| 🙂 **Com a câmera ligada** | **Seguem você pela sala** — o rosto é detectado no navegador e só a posição (dois números) vai pro robô |
+| 🙂 **Com a câmera ligada** | **Seguem você pela sala** — o rosto é detectado no navegador e só a posição (dois números) vai pro robô. E quando ele está te seguindo, **sossega as gracinhas espontâneas** (some a mosca, some a tontura) pra prestar atenção em você |
+| 😄 **Você faz uma cara** | Ele **responde à sua emoção**, com **intensidade**: um sorriso de canto e ele ri; um risão e ele **comemora**; surpreso, ele arregala; boca de choque, ele **leva um susto** junto; **triste ou bravo, ele reconhece por um instante e já tenta te animar** (não afunda junto) |
+| 🤙 **Você faz um gesto** | 👍 vira comemoração, ✋ ele acena "oi" de volta, 🤟 vira corações, ✌️ comemora, ☝️ vira "ideia!" |
+| 👁️ **Você olha nos "olhos" dele** | Rosto de frente e sustentado → ele **reconhece o olhar** com uma piscada de cumplicidade e fica de bom humor |
+| 👥 **Chega mais gente** | Um segundo rosto no quadro → ele **repara na visita**, curioso |
+| ❓ **Ele te faz uma pergunta** | Ao terminar de falar, fica **curioso e expectante**, esperando sua resposta |
+| 🫥 **Você se distrai no meio** | Sumiu da câmera durante a conversa? Ele dá uma olhadela de "ei, tá comigo?" (a reação mais sensível — calibrável/desligável no `config.h`) |
 | 🤨 **Sobrancelhas** | Duas barrinhas que inclinam com o humor. É o que diferencia "bravo" de "concentrado" e "triste" de "com sono" |
 | 👃 **Você chega muito perto** | Fica **vesgo**, tentando focar — como alguém olhando a ponta do próprio nariz |
 | 🥺 **Ninguém aparece há um tempo** | Com a câmera ligada, ele sente sua falta e fica tristinho (uma vez só, não fica de mimimi) |
@@ -422,11 +428,13 @@ O robô tem **olhos animados** numa telinha OLED, e eles não ficam parados espe
 
 Fora isso, o tempo todo: **micro-sacadas** (o olho nunca fica 100% parado, igual ao seu), **respiração** (um balanço lento de 1–2 px) e uma **piscadinha na troca de estado**, que funciona como pontuação.
 
-> 🧠 **Ele tem humor, não só reações.** Por baixo de tudo roda um motor de emoção em dois eixos (bom/mau humor e calmo/agitado) que as interações empurram e que volta sozinho ao neutro. Um elogio não "mostra um coração e acabou" — deixa a Cogni de bom humor pelos minutos seguintes, e isso aparece no formato do olho, no ritmo da piscada e nas sobrancelhas. 💜
+> 🧠 **Ele tem humor, não só reações.** Por baixo de tudo roda um motor de emoção em dois eixos (bom/mau humor e calmo/agitado) que as interações empurram e que volta sozinho ao neutro. Um elogio não "mostra um coração e acabou" — deixa a Cogni de bom humor pelos minutos seguintes, e isso aparece no formato do olho, no ritmo da piscada e nas sobrancelhas. E tem **memória de longo prazo do clima**: um dia cheio de elogios sobe o humor *de fundo* dele — ele tem "um bom dia", que colore tudo até esfriar sozinho. 💜
 
 > 🎨 **A criança pode desenhar o próprio rosto do robô** pelo Companion: largura, altura, quão redondo, distância entre os olhos e se tem sobrancelha. Não é enfeite — pesquisa com crianças mostra que um rosto desenhado por elas é percebido como **socialmente mais inteligente** que um genérico. Cada perfil tem o seu, e trocar de criança troca a cara do robô na hora.
 
-> 🔒 **Sobre a câmera e privacidade:** a detecção de rosto acontece **inteiramente no seu dispositivo**. O que trafega pro servidor é só a posição normalizada do rosto e o tamanho dele (a "distância") — nenhuma imagem, nenhum dado biométrico. É, na prática, o equivalente a mover o mouse. 🙏
+> 🔒 **Sobre a câmera e privacidade:** toda a visão (posição, emoção e gestos) acontece **inteiramente no seu dispositivo**. O que trafega pro servidor é só a posição normalizada do rosto e, de vez em quando, uma **percepção já resumida** — literalmente a palavra `"crianca-feliz"` ou `"gesto-joinha"`. Nenhuma imagem, nenhum vetor facial, nenhum dado biométrico sai daqui. É, na prática, o equivalente a mover o mouse. E quem decide a reação do robô é o servidor, não o navegador — então dá pra mudar o comportamento sem regravar o firmware. 🙏
+
+> 🎭 **Onde mora a "alma" dessas reações:** o navegador só relata o que viu; o servidor (`modules/esp-visao.js`) traduz isso na cara que o robô faz. Emoção negativa segue a política **"espelha 1 s, depois anima"** — ele valida o que você sente e já puxa pra cima. Trocar um sorriso por outra reação é editar um mapa ali, sem tocar no robô. 🧩
 
 > ⚡ **Quer os olhos mais fluidos?** A tela é o gargalo: a 400 kHz, empurrar um quadro inteiro pelo I2C leva ~23 ms, o que trava o teto em ~43 quadros/s. Troque `COGNI_OLED_I2C_HZ` para `800000` no seu `config.h` e o teto dobra. O datasheet do SSD1309 especifica 400 kHz como máximo, mas a maioria dos módulos aguenta — **teste**: se aparecer chuvisco ou a tela congelar, volte. Não tem risco de dano.
 

@@ -201,17 +201,34 @@ static volatile unsigned long ultimaAtividadeMs = 0;
 // servidor classifica a fala da crianca e o rosto mostra o icone da disciplina antes
 // da resposta comecar. A ORDEM importa - materia vem por ultimo para tambem satisfazer
 // reacaoEhComando() (icone central), e duracaoReacao() testa materia ANTES de comando.
+// REACAO_PREOCUPADO e a empatia: quando a webcam ve a crianca triste/brava, o servidor
+// espelha essa reacao por um instante (o robo "reconhece" que ela nao esta bem) e logo
+// manda 'amor'/'piscadela' para animar. Fica na 1a familia (emocao) de proposito - nao e
+// comando nem materia, entao a ordem no enum mantem reacaoEhComando/Materia corretos.
 enum Reacao { REACAO_NENHUMA, REACAO_AMOR, REACAO_RISO, REACAO_CONFUSO, REACAO_SURPRESA,
               REACAO_TRISTE, REACAO_SUOR, REACAO_PISCADELA, REACAO_CELEBRA, REACAO_IDEIA,
+              REACAO_PREOCUPADO, REACAO_SUSTO, REACAO_INTERESSADO,
               REACAO_MIC_OFF, REACAO_MIC_ON, REACAO_PARAR, REACAO_RESET,
               REACAO_CAM_ON, REACAO_CAM_OFF, REACAO_OLA, REACAO_TCHAU,
               REACAO_MAT_MATEMATICA, REACAO_MAT_CIENCIAS, REACAO_MAT_PORTUGUES,
               REACAO_MAT_HISTORIA, REACAO_MAT_GEOGRAFIA, REACAO_MAT_IDIOMAS };
 static volatile Reacao reacaoAtiva = REACAO_NENHUMA;
 static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao vale
+// TOM DA FALA: o servidor avisa (via 'reacao' com nome 'tom-*') se a Cogni fez uma
+// PERGUNTA ou uma EXCLAMACAO. Diferente de uma reacao normal, isto NAO anima na hora
+// (brigaria com o rosto que ja esta falando): fica PENDENTE e e aplicado quando o robo
+// SAI do "falando" - ele termina de perguntar e te olha esperando a resposta.
+enum TomFala { TOM_NENHUM, TOM_PERGUNTA, TOM_EXCLAMACAO };
+static volatile TomFala tomPendente = TOM_NENHUM;
 // Duracao de uma reacao. Fallback aqui para nao exigir novo #define no config.h.
 #ifndef COGNI_REACAO_DURACAO_MS
 #define COGNI_REACAO_DURACAO_MS 2200UL
+#endif
+// REACAO_PREOCUPADO e curta de proposito: e a fase "espelho" da empatia, e o servidor
+// manda a fase "anima" (amor/piscadela) logo depois (~1,2s). Dura um pouco mais que esse
+// atraso para nao piscar o rosto de estado no vao caso a 2a mensagem demore na rede.
+#ifndef COGNI_PREOCUPADO_DURACAO_MS
+#define COGNI_PREOCUPADO_DURACAO_MS 1400UL
 #endif
 // Feedback de comando e mais curto: e um "recebido!", nao uma emocao pra saborear.
 #ifndef COGNI_COMANDO_DURACAO_MS
@@ -242,6 +259,14 @@ static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao
 #endif
 #ifndef COGNI_IDLE_ANIM_MAX_MS
 #define COGNI_IDLE_ANIM_MAX_MS 15000UL
+#endif
+// ENGAJADO COM O ROSTO: quando a webcam esta vendo a crianca e o robo esta seguindo o
+// rosto dela, as animacoes espontaneas (vida propria) ficam mais RARAS e as micro-historias
+// sao suspensas - engajado olhando pra alguem, ele nao deveria "surtar" sozinho nem sair
+// caçando mosca. O fator MULTIPLICA o intervalo entre as espontaneas nesse estado (3x =
+// tres vezes mais espacadas). Ainda acontece, so que ameno. Ver a task da tela.
+#ifndef COGNI_ENGAJADO_ANIM_FATOR
+#define COGNI_ENGAJADO_ANIM_FATOR 3
 #endif
 static unsigned long proximaAnimEspontaneaMs = 0;
 
@@ -323,12 +348,22 @@ static unsigned long proximaHistoriaMs = 0;
 // (core 0). Escrita de 16 bits e atomica no ESP32.
 static volatile int16_t humorValencia = 0;
 static volatile int16_t humorExcitacao = 0;
+// Humor-base (a "personalidade do dia"): uma media MUITO lenta da valencia. E para ele
+// que a valencia decai, em vez de para o zero - um dia de elogios deixa o robo de bom
+// humor de fundo. Ver decairHumor() e COGNI_HUMOR_BASE_MAX.
+static volatile int16_t humorBaseValencia = 0;
 
 #ifndef COGNI_EMOCAO_MEIA_VIDA_MS
 #define COGNI_EMOCAO_MEIA_VIDA_MS 45000UL
 #endif
 #ifndef COGNI_EMOCAO_LIMIAR
 #define COGNI_EMOCAO_LIMIAR 18
+#endif
+// HUMOR DE LONGO PRAZO: teto de quanto o humor-base pode se afastar do neutro. O base
+// caminha devagar (ao longo de minutos) rumo ao clima geral e volta sozinho ao zero sem
+// estimulo, entao ele nunca "gruda" num extremo - so da uma cor de fundo ao dia.
+#ifndef COGNI_HUMOR_BASE_MAX
+#define COGNI_HUMOR_BASE_MAX 25
 #endif
 
 // ---------------------------------------------------------------------
@@ -338,7 +373,7 @@ static volatile int16_t humorExcitacao = 0;
 // existe numa tela deste tamanho. Olhos sozinhos nao distinguem bem "bravo" de
 // "concentrado" nem "triste" de "sonolento"; com sobrancelha a leitura e imediata.
 #ifndef COGNI_SOBRANCELHA_LIGADA
-#define COGNI_SOBRANCELHA_LIGADA 1
+#define COGNI_SOBRANCELHA_LIGADA 0
 #endif
 #ifndef COGNI_SOBRANCELHA_GROSSURA
 #define COGNI_SOBRANCELHA_GROSSURA 3
@@ -470,6 +505,34 @@ static volatile bool ehNoite = false;
 #ifndef COGNI_IGNORADO_MS
 #define COGNI_IGNORADO_MS 12000UL
 #endif
+// CONTATO VISUAL MUTUO: quando a crianca olha DE FRENTE pra camera (rosto centralizado e
+// perto o bastante) e sustenta por um tempinho, o robo "reconhece" o olhar - pisca devagar
+// e ganha um pontinho de bom humor, como quem troca um olhar de cumplicidade. TOLERANCIA e
+// a folga (em milesimos) em volta do centro; TAM_MIN, o tamanho minimo do rosto (perto o
+// bastante pra ser proposital); MS, o tempo sustentado; COOLDOWN, o descanso entre um
+// reconhecimento e o proximo (senao viraria tique).
+#ifndef COGNI_CONTATO_TOLERANCIA
+#define COGNI_CONTATO_TOLERANCIA 130
+#endif
+#ifndef COGNI_CONTATO_TAM_MIN
+#define COGNI_CONTATO_TAM_MIN 250
+#endif
+#ifndef COGNI_CONTATO_MS
+#define COGNI_CONTATO_MS 1500UL
+#endif
+#ifndef COGNI_CONTATO_COOLDOWN_MS
+#define COGNI_CONTATO_COOLDOWN_MS 15000UL
+#endif
+// DESATENCAO NA CONVERSA: se a conversa esta rolando (houve atividade ha pouco), a camera
+// esta ligada, o robo ja viu a crianca e o rosto some por este tempo, ele da UMA olhadela
+// curiosa de "ei, ta comigo?". So uma vez por sumico - rearma quando a crianca reaparece.
+// A mais sensivel a calibrar no robo real; ponha 0 em COGNI_DESATENCAO_ATIVA para desligar.
+#ifndef COGNI_DESATENCAO_ATIVA
+#define COGNI_DESATENCAO_ATIVA 1
+#endif
+#ifndef COGNI_DESATENCAO_MS
+#define COGNI_DESATENCAO_MS 6000UL
+#endif
 
 // Descarta o envelope pendente. Obrigatorio sempre que o audio for jogado fora
 // (corte de fala, desconexao): sem isto o rosto continuaria pulsando por centenas de
@@ -509,6 +572,9 @@ static inline bool reacaoEhMateria(Reacao r) { return r >= REACAO_MAT_MATEMATICA
 // depois no enum), entao inverter aqui daria a duracao errada silenciosamente.
 static inline unsigned long duracaoReacao(Reacao r) {
   if (reacaoEhMateria(r)) return COGNI_MATERIA_DURACAO_MS;
+  // PREOCUPADO e a fase "espelho" da empatia: curta, pois a fase "anima" (amor/piscadela)
+  // vem logo em seguida pelo servidor. Testar antes do ramo de comando (PREOCUPADO < MIC_OFF).
+  if (r == REACAO_PREOCUPADO) return COGNI_PREOCUPADO_DURACAO_MS;
   return reacaoEhComando(r) ? COGNI_COMANDO_DURACAO_MS : COGNI_REACAO_DURACAO_MS;
 }
 
@@ -946,6 +1012,8 @@ static void pararAudioAgora() {
   // Pelo mesmo motivo, joga fora o envelope pendente: aquele audio nao vai soar, e
   // sem isto o rosto continuaria "falando" sozinho depois do corte.
   limparEnvelope();
+  // Fala cortada: nao faz sentido ficar "expectante" por uma pergunta que nao terminou.
+  tomPendente = TOM_NENHUM;
   ampDesligar();
   logInfo("Audio", "Fala interrompida (parar-audio): fila e I2S zerados, amp desligado");
 }
@@ -1321,14 +1389,17 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
           doc["payload"]["altura"]       | 36,
           doc["payload"]["raio"]         | 8,
           doc["payload"]["espaco"]       | 10,
-          doc["payload"]["sobrancelhas"] | true);
+          doc["payload"]["sobrancelhas"] | false);
 
       } else if (strcmp(t, "reacao") == 0) {
         // Reacao pontual disparada pelo CONTEUDO (elogio/piada/duvida...): a task da
         // tela sobrepoe a animacao ao rosto de estado por COGNI_REACAO_DURACAO_MS.
         const char* emo = doc["payload"]["emocao"] | "";
         Reacao r = REACAO_NENHUMA;
-        if      (strcmp(emo, "amor") == 0)      r = REACAO_AMOR;
+        // TOM DA FALA: 'tom-*' NAO anima agora - fica PENDENTE pro fim da fala (tarefaOlho).
+        if      (strcmp(emo, "tom-pergunta") == 0)   tomPendente = TOM_PERGUNTA;
+        else if (strcmp(emo, "tom-exclamacao") == 0) tomPendente = TOM_EXCLAMACAO;
+        else if (strcmp(emo, "amor") == 0)      r = REACAO_AMOR;
         else if (strcmp(emo, "riso") == 0)      r = REACAO_RISO;
         else if (strcmp(emo, "confuso") == 0)   r = REACAO_CONFUSO;
         else if (strcmp(emo, "surpresa") == 0)  r = REACAO_SURPRESA;
@@ -1337,6 +1408,9 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
         else if (strcmp(emo, "piscadela") == 0) r = REACAO_PISCADELA;
         else if (strcmp(emo, "celebra") == 0)   r = REACAO_CELEBRA;
         else if (strcmp(emo, "ideia") == 0)     r = REACAO_IDEIA;
+        else if (strcmp(emo, "preocupado") == 0) r = REACAO_PREOCUPADO;   // empatia (crianca triste/brava)
+        else if (strcmp(emo, "susto") == 0)      r = REACAO_SUSTO;        // crianca muito surpresa
+        else if (strcmp(emo, "interessado") == 0) r = REACAO_INTERESSADO; // chegou gente / tom-pergunta
         // Feedback dos comandos do painel (web ou botao fisico - o servidor manda nos
         // dois casos). Nomes com hifen espelham as acoes da interface.
         else if (strcmp(emo, "mic-off") == 0)    r = REACAO_MIC_OFF;
@@ -1442,7 +1516,21 @@ static void aplicarRostoCustomizado(int largura, int altura, int raio, int espac
   rostoLarguraBase = constrain(largura, COGNI_ROSTO_LARGURA_MIN, COGNI_ROSTO_LARGURA_MAX);
   rostoAlturaBase  = constrain(altura,  COGNI_ROSTO_ALTURA_MIN,  COGNI_ROSTO_ALTURA_MAX);
   rostoRaioBase    = constrain(raio,    COGNI_ROSTO_RAIO_MIN,    COGNI_ROSTO_RAIO_MAX);
-  rostoEspacoBase  = constrain(espaco,  COGNI_ROSTO_ESPACO_MIN,  COGNI_ROSTO_ESPACO_MAX);
+
+  // Os limites acima valem por CAMPO; faltava o limite da SOMA. Dois olhos de 48 com
+  // 34 de espaco pedem 130px numa tela de 128, e a RoboEyes centraliza o bloco inteiro
+  // (eyeLx = (tela - (larg*2 + espaco))/2): o olho da esquerda comecava em x=-1 e o da
+  // direita terminava em 129, cortando 1px de cada lado. Eram as unicas 2 combinacoes
+  // (de 1365) que estouravam, ambas com a largura no maximo.
+  //
+  // Quem cede e o ESPACO, nao a largura: o tamanho do olho e o que a crianca ve
+  // primeiro no rosto que ela desenhou, entao encolher o vao entre eles descaracteriza
+  // menos. O max() externo protege caso alguem afrouxe LARGURA_MAX depois - sem ele o
+  // teto poderia cair abaixo do piso e o constrain sairia invertido.
+  const int espacoMax = max(COGNI_ROSTO_ESPACO_MIN,
+                            min(COGNI_ROSTO_ESPACO_MAX,
+                                COGNI_OLED_LARGURA - 2 * rostoLarguraBase));
+  rostoEspacoBase  = constrain(espaco,  COGNI_ROSTO_ESPACO_MIN, espacoMax);
 
   roboEyes.setWidth(rostoLarguraBase, rostoLarguraBase);
   roboEyes.setHeight(rostoAlturaBase, rostoAlturaBase);
@@ -1477,8 +1565,13 @@ static void aplicarImpactoEmocional(Reacao r) {
     case REACAO_PISCADELA: empurrarHumor(+10,  +5); break;
     case REACAO_OLA:       empurrarHumor(+15, +10); break;
     case REACAO_SURPRESA:  empurrarHumor( +5, +35); break;
+    case REACAO_SUSTO:       empurrarHumor(+3, +45); break;   // susto: pouco humor, MUITA agitacao
+    case REACAO_INTERESSADO: empurrarHumor(+8, +18); break;   // curiosidade: levinho e desperto
     case REACAO_CONFUSO:   empurrarHumor(-10, +10); break;
     case REACAO_SUOR:      empurrarHumor(-12, +15); break;
+    // Empatia: reconhece a emocao da crianca com um puxao leve pra baixo, que decai rapido
+    // - a fase seguinte (amor) empurra +35 e domina. Ele NAO afunda junto com ela.
+    case REACAO_PREOCUPADO: empurrarHumor( -8,  +5); break;
     case REACAO_TRISTE:    empurrarHumor(-30, -10); break;
     case REACAO_TCHAU:     empurrarHumor(-15, -10); break;
     default: break;   // comandos e materias nao mexem no humor
@@ -1497,24 +1590,44 @@ static void aplicarImpactoEmocional(Reacao r) {
 // resquicio - exatamente o bug que ja mordeu o envelope da fala (ver animarFala).
 static void decairHumor() {
   static unsigned long proximoPassoMs = 0;
+  static int contadorBase = 0;
   const unsigned long agora = millis();
   if ((long) (agora - proximoPassoMs) < 0) return;
   proximoPassoMs = agora + (COGNI_EMOCAO_MEIA_VIDA_MS / 5);
 
+  // A valencia decai em direcao ao HUMOR-BASE (nao ao zero): e ele quem da a cor de fundo
+  // do dia. Piso de 1 no passo pra nao "grudar" num resquicio (divisao inteira trunca).
   int v = humorValencia;
-  if (v != 0) {
-    int passo = v / 8;
-    if (passo == 0) passo = (v > 0) ? 1 : -1;
+  const int base = humorBaseValencia;
+  if (v != base) {
+    int passo = (v - base) / 8;
+    if (passo == 0) passo = (v > base) ? 1 : -1;
     v -= passo;
   }
+
+  // Excitacao sempre volta ao zero (e momentanea, nao vira "clima do dia").
   int e = humorExcitacao;
   if (e != 0) {
     int passo = e / 8;
     if (passo == 0) passo = 1;
     e -= passo;
   }
+
   humorValencia  = (int16_t) v;
   humorExcitacao = (int16_t) e;
+
+  // HUMOR-BASE caminha DEVAGAR (a cada ~8 passos deste decaimento = alguns minutos): sobe
+  // se a valencia anda consistentemente acima dele, desce se abaixo, e volta sozinho ao
+  // neutro quando nao ha estimulo - assim ele nunca gruda num extremo, so colore o dia.
+  if (++contadorBase >= 8) {
+    contadorBase = 0;
+    int b = humorBaseValencia;
+    if (v > b + 5)      b++;
+    else if (v < b - 5) b--;
+    else if (b > 0)     b--;   // sem empurrao, esquece devagar e volta ao neutro
+    else if (b < 0)     b++;
+    humorBaseValencia = (int16_t) constrain(b, -COGNI_HUMOR_BASE_MAX, COGNI_HUMOR_BASE_MAX);
+  }
 }
 
 // Traduz o humor em rosto. So atua nos estados "neutros" (repouso e escutando): nos
@@ -1750,13 +1863,23 @@ static bool animarOlhar(Rosto rosto) {
 // O cosseno da o ease-in-out nos extremos (desacelera antes de voltar) e a propria
 // lib ainda faz uma media com a posicao atual, o que suaviza mais um pouco.
 static void animarVarredura() {
-  const float fase = (millis() % COGNI_VARREDURA_PERIODO_MS) / (float) COGNI_VARREDURA_PERIODO_MS;
-  const float amplitude = roboEyes.getScreenConstraint_X() / 2.0f;
-  roboEyes.eyeLxNext = (int) (amplitude * (1.0f - cosf(fase * 2.0f * PI)));
-  // Y travado no centro: este e o unico rosto que nao chama setPosition(), entao sem
-  // isto ele herdaria o Y do rosto anterior - vindo de PENSANDO (que olha pra cima),
-  // a varredura acontecia colada no topo da tela.
-  roboEyes.eyeLyNext = roboEyes.getScreenConstraint_Y() / 2;
+  const int faixaX = roboEyes.getScreenConstraint_X();
+  const int faixaY = roboEyes.getScreenConstraint_Y();
+  // "LENDO", nao "escaneando": os olhos varrem da esquerda pra direita (devagar, como
+  // percorrendo uma linha de texto), saltam de volta pra esquerda e DESCEM uma linha, e
+  // no fim da "pagina" voltam ao topo. Le muito mais como "procurando/pesquisando" do que
+  // o vai-e-volta senoidal anterior - e o Y variando resolve de brinde o mesmo problema de
+  // herdar a posicao do PENSANDO (que olhava pra cima).
+  const int NLINHAS = 3;
+  const unsigned long periodoLinha = COGNI_VARREDURA_PERIODO_MS;
+  const unsigned long t = millis() % (periodoLinha * NLINHAS);
+  const int linha = (int) (t / periodoLinha);                     // 0..NLINHAS-1
+  const float fx = (t % periodoLinha) / (float) periodoLinha;     // 0..1 dentro da linha
+  // 85% do tempo indo E->D, os ultimos 15% saltando de volta pra esquerda (a sacada de
+  // retorno). A lib ainda suaviza a posicao, entao o salto sai como um movimento rapido.
+  const float px = (fx < 0.85f) ? (fx / 0.85f) : (1.0f - (fx - 0.85f) / 0.15f);
+  roboEyes.eyeLxNext = (int) (px * faixaX);
+  roboEyes.eyeLyNext = (int) ((linha / (float) (NLINHAS - 1)) * faixaY);
 }
 
 static void agendarProximaHistoria() {
@@ -2148,6 +2271,15 @@ static void iniciarReacao(Reacao r) {
       roboEyes.setMood(DEFAULT); roboEyes.open(); roboEyes.setSweat(ON); break;
     case REACAO_TRISTE:
       roboEyes.setMood(TIRED); roboEyes.setPosition(S); roboEyes.open(); break;
+    case REACAO_PREOCUPADO:   // empatia: olhos ATENTOS (nao sonolentos), olhar suave e baixo -
+      // "vi que voce nao ta bem". A sobrancelha (se ligada) sobe pelo humor negativo leve.
+      roboEyes.setMood(DEFAULT); roboEyes.setPosition(S); roboEyes.open(); break;
+    case REACAO_SUSTO:        // muito surpresa: arregala e "pula" pra cima, como quem leva um susto
+      roboEyes.setMood(DEFAULT); roboEyes.setPosition(N);
+      roboEyes.setHeight(48, 48); roboEyes.open(); break;
+    case REACAO_INTERESSADO:  // curioso: olhos atentos com o da ponta crescendo (curiosity)
+      roboEyes.setMood(DEFAULT); roboEyes.setPosition(DEFAULT);
+      roboEyes.setCuriosity(ON); roboEyes.open(); break;
     case REACAO_SURPRESA:
       roboEyes.setMood(DEFAULT); roboEyes.setPosition(DEFAULT);
       roboEyes.setHeight(48, 48);   // olhos arregalados (altura default = 36)
@@ -2172,8 +2304,9 @@ static void iniciarReacao(Reacao r) {
 static void limparReacao(Reacao r) {
   if (r == REACAO_SUOR) roboEyes.setSweat(OFF);
   // setHeight redefine o "default" interno da lib, entao restauramos com o valor
-  // ORIGINAL capturado no boot (nao com o eyeLheightDefault, ja sobrescrito).
-  if (r == REACAO_SURPRESA) roboEyes.setHeight(alturaOlhoPadrao, alturaOlhoPadrao);
+  // ORIGINAL capturado no boot (nao com o eyeLheightDefault, ja sobrescrito). SUSTO
+  // arregala igual a SURPRESA, entao precisa do mesmo restauro.
+  if (r == REACAO_SURPRESA || r == REACAO_SUSTO) roboEyes.setHeight(alturaOlhoPadrao, alturaOlhoPadrao);
 }
 
 // Quando true, o quadro em construcao e um ICONE (coracao, microfone, materia) e nao
@@ -2324,6 +2457,10 @@ static void tarefaOlho(void* arg) {
   bool jaViuAlguem = false;              // ja houve um rosto em algum momento?
   bool sentiuFalta = false;              // ja reagiu a esta ausencia? (evita looping)
   unsigned long ultimoHumorMs = 0;       // ultimo refresh do humor no rosto
+  unsigned long contatoDesdeMs = 0;      // desde quando a crianca esta olhando DE FRENTE
+  unsigned long ultimoContatoMs = 0;     // ultimo "olhar de cumplicidade" (cooldown)
+  bool reagiuDesatencao = false;         // ja deu a olhadela de "ta comigo?" neste sumico
+  bool estavaFalando = false;            // pra detectar o FIM da fala (aplica o tom pendente)
 
   for (;;) {
     // O humor decai o tempo todo, inclusive DURANTE uma reacao - senao uma sequencia
@@ -2474,24 +2611,96 @@ static void tarefaOlho(void* arg) {
         sentiuFalta = false;   // rearma: da pra sentir falta de novo na proxima
       }
 
+      // TOM DA FALA (pendente): quando o robo ACABA de falar (saiu de FALANDO e o audio ja
+      // escoou), aplica o tom que o servidor sinalizou - pergunta deixa ele curioso,
+      // esperando a resposta; exclamacao, animado. So no fim da fala, pra nao brigar com o
+      // rosto que estava falando (a fala reescreve a altura todo quadro).
+      if (atual == ROSTO_FALANDO) {
+        estavaFalando = true;
+      } else if (estavaFalando && !recebendoAudio) {
+        estavaFalando = false;
+        if (tomPendente != TOM_NENHUM) {
+          const Reacao rt = (tomPendente == TOM_PERGUNTA) ? REACAO_INTERESSADO : REACAO_PISCADELA;
+          tomPendente = TOM_NENHUM;
+          reacaoAteMs = millis() + duracaoReacao(rt);
+          reacaoAtiva = rt;   // por ultimo: prazo ja valido
+        }
+      }
+
+      // CONTATO VISUAL MUTUO: rosto centralizado, perto e sustentado = a crianca esta
+      // olhando DE FRENTE pro robo. Ele reconhece com uma piscada e um pontinho de bom
+      // humor - um olhar de cumplicidade. So fora da fala/sono (onde a piscada se perderia)
+      // e com descanso (cooldown), pra ser um gesto, nao um tique.
+      {
+        const bool deFrente = ((millis() - ultimoOlharMs) <= COGNI_OLHAR_VALIDADE_MS) &&
+            abs((int) alvoOlharX - 500) < COGNI_CONTATO_TOLERANCIA &&
+            abs((int) alvoOlharY - 500) < COGNI_CONTATO_TOLERANCIA &&
+            alvoOlharTam >= COGNI_CONTATO_TAM_MIN;
+        if (!deFrente) {
+          contatoDesdeMs = 0;
+        } else {
+          if (contatoDesdeMs == 0) contatoDesdeMs = millis();
+          if (millis() - contatoDesdeMs >= COGNI_CONTATO_MS &&
+              millis() - ultimoContatoMs >= COGNI_CONTATO_COOLDOWN_MS &&
+              atual != ROSTO_FALANDO && atual != ROSTO_DORMINDO) {
+            ultimoContatoMs = millis();
+            contatoDesdeMs = 0;
+            roboEyes.blink();
+            empurrarHumor(+5, +3);
+          }
+        }
+      }
+
+#if COGNI_DESATENCAO_ATIVA
+      // DESATENCAO NA CONVERSA: estava conversando ha pouco (< 20s), a camera esta ligada,
+      // ja viu a crianca e o rosto sumiu por um tempo - mas ainda nao a ponto de "abandono"
+      // (que e o ignorado la de cima, aos 12s). Uma olhadela curiosa de "ei, ta comigo?",
+      // uma vez por sumico; rearma quando ela reaparece. A mais sensivel a calibrar no robo.
+      if (atual != ROSTO_DORMINDO && cameraLigadaRobo && jaViuAlguem && !reagiuDesatencao &&
+          (millis() - ultimaAtividadeMs) < 20000UL &&
+          (millis() - ultimoOlharMs) > COGNI_DESATENCAO_MS &&
+          (millis() - ultimoOlharMs) < COGNI_IGNORADO_MS) {
+        reagiuDesatencao = true;
+        reacaoAteMs = millis() + duracaoReacao(REACAO_INTERESSADO);
+        reacaoAtiva = REACAO_INTERESSADO;   // por ultimo: prazo ja valido
+      }
+      if ((millis() - ultimoOlharMs) <= COGNI_OLHAR_VALIDADE_MS) reagiuDesatencao = false;
+#endif
+
+      // ENGAJADO COM O ROSTO: a webcam esta vendo a crianca e o olhar dela chegou ha
+      // pouco. Enquanto isso vale, o robo esta prestando atencao NELA - entao as animacoes
+      // espontaneas ficam mais raras e as micro-historias sao suspensas (ele nao "surta"
+      // sozinho nem sai caçando mosca no meio de uma interacao). As reacoes do servidor e
+      // do conteudo seguem passando: essas SAO a interacao, nao ruido.
+      const bool engajadoComRosto = (millis() - ultimoOlharMs) <= COGNI_OLHAR_VALIDADE_MS;
+
       // VIDA PROPRIA: so quando OCIOSO (idle) e sem ninguem falando, dispara reacoes
       // espontaneas de tempos em tempos. Fora do idle, adia o proximo disparo pra nao
       // acumular varias e estourar de uma vez ao voltar pro repouso.
       if (atual == ROSTO_IDLE && historiaAtiva == HIST_NENHUMA &&
           (long)(millis() - proximaAnimEspontaneaMs) >= 0) {
-        dispararAnimacaoEspontanea();
-        agendarProximaAnimEspontanea();
+        if (engajadoComRosto) {
+          // Olhando pra crianca: adia a espontanea (COGNI_ENGAJADO_ANIM_FATOR x mais
+          // espacada) em vez de disparar agora. Ainda acontece, so que ameno.
+          proximaAnimEspontaneaMs = millis()
+            + (unsigned long) random(COGNI_IDLE_ANIM_MIN_MS, COGNI_IDLE_ANIM_MAX_MS) * COGNI_ENGAJADO_ANIM_FATOR;
+        } else {
+          dispararAnimacaoEspontanea();
+          agendarProximaAnimEspontanea();
+        }
       } else if (atual != ROSTO_IDLE) {
         agendarProximaAnimEspontanea();
       }
 
       // MICRO-HISTORIAS: mesma logica das reacoes espontaneas, so que num intervalo
       // bem mais longo - uma cena e um acontecimento, e acontecimento demais deixa de
-      // ser acontecimento. Fora do repouso, o relogio e adiado em vez de acumular.
-      if (atual == ROSTO_IDLE && historiaAtiva == HIST_NENHUMA && reacaoAtiva == REACAO_NENHUMA &&
-          (long)(millis() - proximaHistoriaMs) >= 0) {
+      // ser acontecimento. Fora do repouso, OU engajado com o rosto, o relogio e adiado
+      // em vez de acumular (perseguir uma mosca imaginaria com a crianca na frente seria
+      // o oposto de "seguir o rosto dela").
+      if (atual == ROSTO_IDLE && !engajadoComRosto && historiaAtiva == HIST_NENHUMA &&
+          reacaoAtiva == REACAO_NENHUMA && (long)(millis() - proximaHistoriaMs) >= 0) {
         dispararHistoria();
-      } else if (atual != ROSTO_IDLE) {
+      } else if (atual != ROSTO_IDLE || engajadoComRosto) {
         agendarProximaHistoria();
       }
     }

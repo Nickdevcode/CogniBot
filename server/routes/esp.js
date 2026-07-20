@@ -7,6 +7,7 @@ const {
 const { sintetizarPcm } = require('../modules/speech')
 const { sanitizarTexto } = require('../modules/safety')
 const { processarFrame, validarImagem } = require('../modules/vision')
+const { reagirPercepcao } = require('../modules/esp-visao')
 const { definirFrameWebcam } = require('../modules/webcam')
 const { carregarUsuario, atualizarUsuario } = require('../modules/memoria')
 const { log } = require('../modules/logger')
@@ -160,6 +161,17 @@ router.post('/olhar', (req, res) => {
   res.status(204).end()
 })
 
+// PERCEPCAO VISUAL da crianca (emocao facial ou gesto de mao), detectada no navegador -
+// ex.: "crianca-feliz", "gesto-joinha". O cliente ja filtra (histerese + cooldown), entao
+// isto chega raramente; aqui so validamos e deixamos a esp-visao decidir a reacao do robo
+// (a "alma" da resposta). Resposta vazia (204): a interface nao consome isto.
+router.post('/reacao-visual', (req, res) => {
+  const percepcao = sanitizarTexto(req.body?.percepcao, 40)
+  if (!percepcao) return res.status(400).json({ erro: 'percepcao obrigatoria' })
+  reagirPercepcao(percepcao)
+  res.status(204).end()
+})
+
 // ROSTO CUSTOMIZAVEL: a geometria dos olhos que a crianca desenhou. Guardamos no
 // perfil dela e empurramos para o robo na hora, para o editor do Companion poder
 // mostrar o resultado AO VIVO no robo enquanto ela mexe nos controles - que e o que
@@ -178,7 +190,7 @@ router.put('/rosto', async (req, res) => {
     altura: num(req.body?.altura, ROSTO_PADRAO.altura),
     raio: num(req.body?.raio, ROSTO_PADRAO.raio),
     espaco: num(req.body?.espaco, ROSTO_PADRAO.espaco),
-    sobrancelhas: req.body?.sobrancelhas !== false,
+    sobrancelhas: req.body?.sobrancelhas === true,
   }
 
   try {

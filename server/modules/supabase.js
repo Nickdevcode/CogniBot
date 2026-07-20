@@ -56,6 +56,10 @@ function usuarioParaLinha(u) {
     idioma_nativo: u.idiomaNativo || 'pt',
     idiomas_estudando: Array.isArray(u.idiomasEstudando) ? u.idiomasEstudando : [],
     prompt_personalizado: u.promptPersonalizado ?? null,
+    // Geometria dos olhos desenhada pela crianca no Companion. Sem este campo o
+    // rosto so vivia no cache/JSON local: nao subia pro Supabase e nao voltava na
+    // hidratacao, entao reiniciar o servidor devolvia o robo pro rosto de fabrica.
+    rosto_robo: u.rostoRobo ?? null,
     codigo_pareamento: u.codigoPareamento ?? null,
     criado_em: u.criadoEm || new Date().toISOString(),
     ultimo_acesso: u.ultimoAcesso ?? null,
@@ -87,6 +91,8 @@ function linhaParaUsuario(r) {
     idiomaNativo: r.idioma_nativo || 'pt',
     idiomasEstudando: Array.isArray(r.idiomas_estudando) ? r.idiomas_estudando : [],
     promptPersonalizado: r.prompt_personalizado ?? null,
+    // null = crianca nunca desenhou; enviarRostoParaEsp() cai no ROSTO_PADRAO.
+    rostoRobo: r.rosto_robo ?? null,
     codigoPareamento: r.codigo_pareamento ?? null,
     criadoEm: r.criado_em || new Date().toISOString(),
     ultimoAcesso: r.ultimo_acesso ?? null,
