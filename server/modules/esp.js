@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const config = require('../config')
 const { log } = require('./logger')
 const { processarChunkPcm, configurarUsuario, descartarSessao, forcarFimDeFala, interromper } = require('./esp-pipeline')
+const { carregarUsuario } = require('./memoria')
 const atividade = require('./esp-atividade')
 
 const conexoesControle = new Map()
@@ -255,6 +256,10 @@ function configurarServidoresWebSocket(httpServer) {
     // Sincroniza o rosto (olhos) assim que o robo conecta, para uma reconexao no
     // meio da conversa nao deixar a expressao defasada.
     enviarExpressaoParaEsp(ws)
+    // E a GEOMETRIA dos olhos desenhada pela crianca. Precisa vir na conexao porque o
+    // firmware nao guarda isso entre reinicios - ele sobe sempre com o rosto de
+    // fabrica e espera o servidor contar como esta crianca gosta dele.
+    enviarRostoParaEsp(ws)
   })
 
   iniciarPing(wssControle)
@@ -771,6 +776,10 @@ function definirUsuarioAtivo(usuarioId) {
     configurarUsuario(ws.idConexao, usuarioId)
     aplicados++
   }
+  // Cada crianca tem o SEU rosto: trocar de perfil troca a cara do robo na hora. E o
+  // que faz o rosto customizado valer a pena numa casa com mais de um filho - senao o
+  // desenho de um viraria o robo do outro.
+  enviarRostoParaEsp()
   broadcastEstado()
   return aplicados
 }
@@ -878,6 +887,37 @@ function enviarExpressaoParaEsp(ws = null) {
   return enviarComando('expressao', payload)
 }
 
+// Geometria PADRAO dos olhos: os mesmos numeros de fabrica da RoboEyes. Um perfil sem
+// rosto salvo cai aqui, e o robo fica com a cara original.
+const ROSTO_PADRAO = { largura: 36, altura: 36, raio: 8, espaco: 10, sobrancelhas: true }
+
+// Envia ao robo a geometria dos olhos que a crianca desenhou no Companion. Fica no
+// perfil (campo `rostoRobo`), que ja e hidratado do Supabase pelo caminho normal de
+// perfil - entao nao ha nada de especial a sincronizar aqui.
+//
+// A validacao de faixa NAO e feita aqui de proposito: quem garante que o valor cabe na
+// tela e o firmware, que e quem conhece a tela. Aqui so garantimos que sao numeros.
+function enviarRostoParaEsp(ws = null) {
+  let rosto = ROSTO_PADRAO
+  try {
+    const usuario = carregarUsuario(usuarioAtivoRobo)
+    if (usuario?.rostoRobo && typeof usuario.rostoRobo === 'object') {
+      rosto = { ...ROSTO_PADRAO, ...usuario.rostoRobo }
+    }
+  } catch {
+    // Perfil ilegivel nao pode impedir o robo de ter rosto: segue com o padrao.
+  }
+  const payload = {
+    largura: Number(rosto.largura) || ROSTO_PADRAO.largura,
+    altura: Number(rosto.altura) || ROSTO_PADRAO.altura,
+    raio: Number.isFinite(Number(rosto.raio)) ? Number(rosto.raio) : ROSTO_PADRAO.raio,
+    espaco: Number.isFinite(Number(rosto.espaco)) ? Number(rosto.espaco) : ROSTO_PADRAO.espaco,
+    sobrancelhas: rosto.sobrancelhas !== false,
+  }
+  if (ws) return enviarComandoParaConexao(ws, 'rosto', payload)
+  return enviarComando('rosto', payload)
+}
+
 // Envia uma REACAO pontual (emocao) ao robo para os olhos animarem por alguns
 // segundos. Broadcast para todas as conexoes de controle (no MVP ha 1 robo). O
 // firmware mapeia a emocao no enum Reacao e sobrepoe a animacao ao rosto de estado.
@@ -906,4 +946,6 @@ module.exports = {
   interromperRobo,
   reagirResetConversa,
   reagirCamera,
+  enviarRostoParaEsp,
+  ROSTO_PADRAO,
 }

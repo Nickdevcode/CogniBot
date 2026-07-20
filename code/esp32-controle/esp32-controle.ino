@@ -246,6 +246,36 @@ static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao
 static unsigned long proximaAnimEspontaneaMs = 0;
 
 // ---------------------------------------------------------------------
+// ROSTO CUSTOMIZAVEL: a crianca desenha os olhos do proprio robo
+// ---------------------------------------------------------------------
+// A geometria dos olhos deixa de ser fixa no firmware e passa a vir do perfil da
+// crianca (definida por ela no Cogni Companion). Nao e enfeite: pesquisa de 2025 com
+// criancas mostrou que um rosto DESENHADO PELA PROPRIA CRIANCA tem inteligencia social
+// percebida significativamente maior que um rosto generico - e aponta que quase todo
+// robo infantil e projetado da perspectiva de um adulto. Aqui isso vira hipotese
+// testavel, com grupo de controle, e nao so uma tela de configuracao.
+//
+// Guardamos a BASE separada do que esta valendo agora porque o humor modula o raio da
+// borda a cada segundo: sem uma base, cada modulacao partiria do valor ja modulado e o
+// olho iria derivando ate um extremo.
+static int rostoLarguraBase = 36;
+static int rostoAlturaBase  = 36;
+static int rostoRaioBase    = 8;
+static int rostoEspacoBase  = 10;
+
+// Limites de sanidade. A tela tem 128x64 e os dois olhos precisam caber lado a lado
+// com folga para a sobrancelha: um valor absurdo vindo do servidor (bug no site, campo
+// editado na mao) nao pode desenhar fora da tela nem travar a animacao.
+#define COGNI_ROSTO_LARGURA_MIN   14
+#define COGNI_ROSTO_LARGURA_MAX   48
+#define COGNI_ROSTO_ALTURA_MIN    12
+#define COGNI_ROSTO_ALTURA_MAX    48
+#define COGNI_ROSTO_RAIO_MIN       0
+#define COGNI_ROSTO_RAIO_MAX      16
+#define COGNI_ROSTO_ESPACO_MIN    -4
+#define COGNI_ROSTO_ESPACO_MAX    34
+
+// ---------------------------------------------------------------------
 // MICRO-HISTORIAS: pequenas cenas em vez de gestos avulsos
 // ---------------------------------------------------------------------
 // As reacoes espontaneas resolvem "o robo se mexe sozinho", mas todas duram 2s e sao
@@ -1282,6 +1312,17 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
         alvoOlharTam = (int16_t) (constrain(tam, 0.0f, 1.0f) * 1000.0f);
         ultimoOlharMs = millis();
 
+      } else if (strcmp(t, "rosto") == 0) {
+        // Geometria dos olhos desenhada pela crianca no Companion. Os defaults sao os
+        // valores originais da RoboEyes, entao um perfil sem rosto salvo (ou um campo
+        // faltando) simplesmente mantem o rosto de fabrica.
+        aplicarRostoCustomizado(
+          doc["payload"]["largura"]      | 36,
+          doc["payload"]["altura"]       | 36,
+          doc["payload"]["raio"]         | 8,
+          doc["payload"]["espaco"]       | 10,
+          doc["payload"]["sobrancelhas"] | true);
+
       } else if (strcmp(t, "reacao") == 0) {
         // Reacao pontual disparada pelo CONTEUDO (elogio/piada/duvida...): a task da
         // tela sobrepoe a animacao ao rosto de estado por COGNI_REACAO_DURACAO_MS.
@@ -1390,6 +1431,30 @@ static Rosto calcularRosto() {
   return ROSTO_IDLE;
 }
 
+// Aplica a geometria escolhida pela crianca. Chamada quando o servidor manda o rosto
+// (na conexao e sempre que o perfil muda no site).
+//
+// setHeight/setWidth redefinem os "defaults" internos da lib - que e exatamente o que
+// queremos aqui, ao contrario do envelope da fala, onde isso seria um bug. Por isso
+// alturaOlhoPadrao (usado para restaurar depois da reacao SURPRESA) tambem e
+// reatualizado: senao a surpresa devolveria o olho para o tamanho ANTIGO.
+static void aplicarRostoCustomizado(int largura, int altura, int raio, int espaco, bool sobrancelhas) {
+  rostoLarguraBase = constrain(largura, COGNI_ROSTO_LARGURA_MIN, COGNI_ROSTO_LARGURA_MAX);
+  rostoAlturaBase  = constrain(altura,  COGNI_ROSTO_ALTURA_MIN,  COGNI_ROSTO_ALTURA_MAX);
+  rostoRaioBase    = constrain(raio,    COGNI_ROSTO_RAIO_MIN,    COGNI_ROSTO_RAIO_MAX);
+  rostoEspacoBase  = constrain(espaco,  COGNI_ROSTO_ESPACO_MIN,  COGNI_ROSTO_ESPACO_MAX);
+
+  roboEyes.setWidth(rostoLarguraBase, rostoLarguraBase);
+  roboEyes.setHeight(rostoAlturaBase, rostoAlturaBase);
+  roboEyes.setBorderradius(rostoRaioBase, rostoRaioBase);
+  roboEyes.setSpacebetween(rostoEspacoBase);
+  alturaOlhoPadrao = rostoAlturaBase;
+  sobrancelhaVisivel = (COGNI_SOBRANCELHA_LIGADA) && sobrancelhas;
+
+  logInfo("Rosto", String("Geometria da crianca aplicada: ") + rostoLarguraBase + "x" +
+                   rostoAlturaBase + " raio " + rostoRaioBase + " espaco " + rostoEspacoBase);
+}
+
 // Empurra o humor, com trava nos extremos. Uma unica interacao nunca leva o robo do
 // neutro ao maximo: os impactos sao deliberadamente pequenos perto da escala, entao o
 // humor e resultado do ACUMULO de uma conversa, e nao de uma frase isolada.
@@ -1473,8 +1538,11 @@ static void aplicarHumorNoRosto(Rosto rosto) {
     else if (ehNoite && rosto == ROSTO_IDLE) roboEyes.setMood(TIRED);
     else                                 roboEyes.setMood(DEFAULT);
 
-    // Redondo quando feliz (8 -> 12), anguloso quando pra baixo (8 -> 5).
-    const int raio = 8 + (v * 4) / 100;
+    // Redondo quando feliz, anguloso quando pra baixo. Parte SEMPRE do raio-base
+    // escolhido pela crianca (nunca do valor atual, que ja esta modulado - isso faria
+    // o olho derivar para um extremo a cada segundo).
+    const int raio = constrain(rostoRaioBase + (v * 4) / 100,
+                               COGNI_ROSTO_RAIO_MIN, COGNI_ROSTO_RAIO_MAX);
     roboEyes.setBorderradius(raio, raio);
 
     // Agitado pisca mais; quieto pisca menos. Intervalo base de 3s indo a ~1,5s no

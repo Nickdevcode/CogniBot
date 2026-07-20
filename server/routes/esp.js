@@ -2,13 +2,13 @@ const express = require('express')
 const {
   obterEstado, enviarComando, registrarOuvinteEstado,
   enviarAudioParaRobo, definirUsuarioAtivo, definirMicMutado, definirRoboHabilitado, interromperRobo,
-  reagirCamera,
+  reagirCamera, enviarRostoParaEsp, ROSTO_PADRAO,
 } = require('../modules/esp')
 const { sintetizarPcm } = require('../modules/speech')
 const { sanitizarTexto } = require('../modules/safety')
 const { processarFrame, validarImagem } = require('../modules/vision')
 const { definirFrameWebcam } = require('../modules/webcam')
-const { carregarUsuario } = require('../modules/memoria')
+const { carregarUsuario, atualizarUsuario } = require('../modules/memoria')
 const { log } = require('../modules/logger')
 const { registrarOuvinte: registrarOuvinteMonitor, transmitirAudio } = require('../modules/monitor')
 const { registrarOuvinte: registrarOuvinteAtividade } = require('../modules/esp-atividade')
@@ -158,6 +158,50 @@ router.post('/olhar', (req, res) => {
     t: Number.isFinite(t) ? clamp(t) : 0,
   })
   res.status(204).end()
+})
+
+// ROSTO CUSTOMIZAVEL: a geometria dos olhos que a crianca desenhou. Guardamos no
+// perfil dela e empurramos para o robo na hora, para o editor do Companion poder
+// mostrar o resultado AO VIVO no robo enquanto ela mexe nos controles - que e o que
+// torna a coisa uma brincadeira em vez de um formulario.
+//
+// A validacao de FAIXA fica no firmware, que e quem conhece a tela; aqui so garantimos
+// que os campos sao numeros e que nao estamos gravando lixo no perfil.
+router.put('/rosto', async (req, res) => {
+  const usuarioId = req.body?.usuarioId || req.query?.usuarioId
+  if (!usuarioId) return res.status(400).json({ erro: 'usuarioId e obrigatorio' })
+  if (!carregarUsuario(usuarioId)) return res.status(404).json({ erro: 'usuario nao encontrado' })
+
+  const num = (v, padrao) => (Number.isFinite(Number(v)) ? Number(v) : padrao)
+  const rostoRobo = {
+    largura: num(req.body?.largura, ROSTO_PADRAO.largura),
+    altura: num(req.body?.altura, ROSTO_PADRAO.altura),
+    raio: num(req.body?.raio, ROSTO_PADRAO.raio),
+    espaco: num(req.body?.espaco, ROSTO_PADRAO.espaco),
+    sobrancelhas: req.body?.sobrancelhas !== false,
+  }
+
+  try {
+    await atualizarUsuario(usuarioId, (u) => { u.rostoRobo = rostoRobo })
+  } catch (err) {
+    log('Erro', `Falha ao salvar o rosto do robo: ${err.message}`)
+    return res.status(500).json({ erro: 'nao foi possivel salvar' })
+  }
+
+  // So empurra para o robo se o perfil editado for o que ele esta usando agora - senao
+  // mexer no rosto de uma crianca mudaria a cara do robo enquanto a outra conversa.
+  const enviado = enviarRostoParaEsp() > 0
+  res.json({ rostoRobo, aplicadoNoRobo: enviado })
+})
+
+// Devolve o rosto salvo (ou o padrao de fabrica), para o editor do Companion abrir ja
+// mostrando o que a crianca escolheu da ultima vez.
+router.get('/rosto', (req, res) => {
+  const usuarioId = req.query?.usuarioId
+  if (!usuarioId) return res.status(400).json({ erro: 'usuarioId e obrigatorio' })
+  const usuario = carregarUsuario(usuarioId)
+  if (!usuario) return res.status(404).json({ erro: 'usuario nao encontrado' })
+  res.json({ rostoRobo: { ...ROSTO_PADRAO, ...(usuario.rostoRobo || {}) }, padrao: ROSTO_PADRAO })
 })
 
 // A webcam vive no NAVEGADOR: o dashboard avisa aqui quando ela liga/desliga (tanto
