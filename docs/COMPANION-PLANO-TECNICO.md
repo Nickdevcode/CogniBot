@@ -124,6 +124,7 @@ Um dado, três coelhos. 🎯
 | `prompt_personalizado` | text | **novo** — instruções do pai pra Cogni sobre esse filho |
 | `responsavel_id` | uuid | FK → responsaveis(id), nullable até parear |
 | `codigo_pareamento` | text unique | **novo** — código FIXO do perfil (6 chars, sem ambíguos), gerado no nascimento do perfil, permanente. O pai usa pra vincular no Companion |
+| `rosto_robo` | jsonb | **novo** — a geometria dos olhos que a **criança** desenhou (ver "🎨 O editor de rosto"). Nullable: sem valor = rosto de fábrica. Cada criança tem o seu, e trocar de perfil troca a cara do robô na hora |
 | `criado_em` | timestamptz | |
 | `ultimo_acesso` | timestamptz | |
 | `atualizado_em` | timestamptz | |
@@ -212,6 +213,51 @@ O site lê/escreve via `@supabase/supabase-js` (anon key, já carregado nos HTML
 - **Despareamento:** `POST {SERVIDOR}/api/pareamento/desvincular` com `{ criancaId, responsavelId }`. Zera o `responsavel_id` da criança (**só** se quem pede for o dono — um pai não desvincula filho de outro). Respostas: `200 { ok:true, jaDesvinculado? }` (`jaDesvinculado:true` quando já não estava vinculada a ele — idempotente) · `404` criança não encontrada · `400` dados faltando. O `codigo_pareamento` **não muda**, então dá pra reparear depois com o mesmo código. Uso no site (etapa "status de vínculo"): mostrar "Conectado ao perfil de [nome]" + botão "Desvincular" (recomenda-se confirmar antes — apagar o vínculo tira o acesso às conversas daquele filho).
 
 > O front usa **snake_case** (como vem do Postgres). O servidor converte snake↔camel internamente (o código do servidor usa camelCase: `materiaFavorita` etc.).
+
+---
+
+## 🎨 O editor de rosto (a criança desenha os olhos do robô)
+
+Essa é a única tela do Companion feita **para a criança**, não para o pai — e é a que tem respaldo acadêmico mais direto: um estudo de 2025 mostrou que um rosto **desenhado pela própria criança** tem *inteligência social percebida* significativamente maior que um rosto genérico, e aponta que quase todo robô infantil é projetado da perspectiva de um adulto. No TCC isso vira hipótese testável com grupo de controle: mesmo robô, mesmo conteúdo, mudando só quem desenhou a cara dele.
+
+### O que a criança controla
+
+O robô desenha os olhos **proceduralmente** (não são imagens), então o que o editor expõe são cinco parâmetros — e só esses cinco. Qualquer coisa fora dessa lista o firmware ignora.
+
+| Campo | Tipo | Faixa aceita | Padrão | O que muda na cara |
+| --- | --- | --- | --- | --- |
+| `largura` | int (px) | 14 – 48 | 36 | Olho fino ou largo |
+| `altura` | int (px) | 12 – 48 | 36 | Olho espremido ou arregalado |
+| `raio` | int (px) | 0 – 16 | 8 | **0 = quadradão (sério/robótico)**, 16 = bem redondo (fofo) |
+| `espaco` | int (px) | −4 – 34 | 10 | Distância entre os olhos; negativo cruza (vesguinho permanente) |
+| `sobrancelhas` | boolean | — | `true` | Liga/desliga as sobrancelhas |
+
+> ⚠️ **A faixa é validada no firmware**, que é quem conhece a tela de 128×64. O site deve respeitar os limites acima na UI (sliders), mas não precisa se preocupar em blindar: um valor fora da faixa é **grampeado**, nunca desenha fora da tela.
+
+### Os dois endpoints
+
+Ambos no servidor local da Cogni (`{SERVIDOR}`), porque quem fala com o robô é ele:
+
+```
+GET  {SERVIDOR}/api/esp/rosto?usuarioId=<id>
+  → { rostoRobo: { largura, altura, raio, espaco, sobrancelhas }, padrao: {...} }
+
+PUT  {SERVIDOR}/api/esp/rosto
+  body: { usuarioId, largura, altura, raio, espaco, sobrancelhas }
+  → { rostoRobo, aplicadoNoRobo: true|false }
+```
+
+`aplicadoNoRobo` diz se o robô estava conectado **e** usando aquele perfil. `false` não é erro: o rosto foi salvo e vai valer na próxima conexão.
+
+### O detalhe que faz a tela ser divertida
+
+O `PUT` aplica **na hora** no robô físico. Então o editor deve mandar a cada mudança de slider (com um *debounce* de ~150 ms) e a criança vê **o robô de verdade mudando de cara ao vivo** enquanto arrasta. É isso que transforma um formulário numa brincadeira — sem o preview ao vivo, a feature perde a graça inteira.
+
+Recomendado: um preview em SVG/Canvas no próprio site (dois retângulos arredondados + as barrinhas das sobrancelhas), para funcionar mesmo com o robô desligado.
+
+### Onde o dado mora
+
+`criancas.rosto_robo` (jsonb). O robô lê do perfil local, que já é hidratado do Supabase pelo caminho normal — **não há sincronismo novo a construir**. O servidor manda o rosto pro robô em dois momentos: quando ele conecta (o firmware não guarda geometria entre reinícios) e quando **troca o perfil ativo** — o que é o que faz a ideia valer numa casa com mais de um filho.
 
 ---
 

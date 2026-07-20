@@ -407,8 +407,30 @@ O robô tem **olhos animados** numa telinha OLED, e eles não ficam parados espe
 | 🎛️ **Comando do painel** | Ícone central: microfone riscado, pausa, seta de recomeçar, câmera com flash… |
 | 📐 **Assunto da conversa** | O ícone da matéria aparece antes da resposta (soma, erlenmeyer, livro, ampulheta, globo, balões de fala) |
 | 🙂 **Com a câmera ligada** | **Seguem você pela sala** — o rosto é detectado no navegador e só a posição (dois números) vai pro robô |
+| 🤨 **Sobrancelhas** | Duas barrinhas que inclinam com o humor. É o que diferencia "bravo" de "concentrado" e "triste" de "com sono" |
+| 👃 **Você chega muito perto** | Fica **vesgo**, tentando focar — como alguém olhando a ponta do próprio nariz |
+| 🥺 **Ninguém aparece há um tempo** | Com a câmera ligada, ele sente sua falta e fica tristinho (uma vez só, não fica de mimimi) |
+| 🌙 **À noite** | Cochila na metade do tempo e o rosto neutro fica sonolento — ele vive no mesmo fuso que você |
 
-> 🔒 **Sobre a câmera e privacidade:** a detecção de rosto acontece **inteiramente no seu dispositivo**. O que trafega pro servidor é só a posição normalizada do rosto — nenhuma imagem, nenhum dado biométrico. É, na prática, o equivalente a mover o mouse. 🙏
+**E quando ninguém está mexendo nele:**
+
+| Cena | O que rola |
+| --- | --- |
+| 🪰 **A mosca** | Os olhos perseguem um inseto invisível pela tela, num caminho que nunca se repete |
+| 💫 **A tontura** | Ele roda os olhos e vai "assentando" de volta no centro |
+| 😪 **O cochilo** | A pálpebra desce em três degraus, lutando contra o sono — e ele acorda com um susto |
+
+Fora isso, o tempo todo: **micro-sacadas** (o olho nunca fica 100% parado, igual ao seu), **respiração** (um balanço lento de 1–2 px) e uma **piscadinha na troca de estado**, que funciona como pontuação.
+
+> 🧠 **Ele tem humor, não só reações.** Por baixo de tudo roda um motor de emoção em dois eixos (bom/mau humor e calmo/agitado) que as interações empurram e que volta sozinho ao neutro. Um elogio não "mostra um coração e acabou" — deixa a Cogni de bom humor pelos minutos seguintes, e isso aparece no formato do olho, no ritmo da piscada e nas sobrancelhas. 💜
+
+> 🎨 **A criança pode desenhar o próprio rosto do robô** pelo Companion: largura, altura, quão redondo, distância entre os olhos e se tem sobrancelha. Não é enfeite — pesquisa com crianças mostra que um rosto desenhado por elas é percebido como **socialmente mais inteligente** que um genérico. Cada perfil tem o seu, e trocar de criança troca a cara do robô na hora.
+
+> 🔒 **Sobre a câmera e privacidade:** a detecção de rosto acontece **inteiramente no seu dispositivo**. O que trafega pro servidor é só a posição normalizada do rosto e o tamanho dele (a "distância") — nenhuma imagem, nenhum dado biométrico. É, na prática, o equivalente a mover o mouse. 🙏
+
+> ⚡ **Quer os olhos mais fluidos?** A tela é o gargalo: a 400 kHz, empurrar um quadro inteiro pelo I2C leva ~23 ms, o que trava o teto em ~43 quadros/s. Troque `COGNI_OLED_I2C_HZ` para `800000` no seu `config.h` e o teto dobra. O datasheet do SSD1309 especifica 400 kHz como máximo, mas a maioria dos módulos aguenta — **teste**: se aparecer chuvisco ou a tela congelar, volte. Não tem risco de dano.
+
+> ⚖️ **Licença:** a animação dos olhos usa a biblioteca [FluxGarage RoboEyes](https://github.com/FluxGarage/RoboEyes), que é **GPLv3**. Nós **não a modificamos** (as sobrancelhas entram por uma subclasse do display, não por um fork), então ela é usada como biblioteca. Se for publicar o firmware junto do TCC, vale confirmar isso com seu orientador. 📄
 
 ### 🔊 Ouvindo o robô no PC (página de debug)
 
