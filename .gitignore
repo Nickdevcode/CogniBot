@@ -31,6 +31,12 @@ coverage/
 dist/
 build/
 
+# Biblioteca do MediaPipe (detector de rosto que faz os olhos do robo seguirem a
+# crianca). Sao ~11MB de WASM + modelo: peso demais para o Git, e nao e codigo
+# nosso. Baixe com `npm run vendor` dentro de server/ — leva alguns segundos e
+# deixa tudo funcionando offline depois.
+client/vendor/
+
 # Config do firmware ESP32 com credenciais reais (Wi-Fi, senha, token, IP).
 # NUNCA versionar: cada pessoa cria o seu a partir do config.example.h da pasta.
 # Os modelos config.example.h, sim, vao para o Git (tem so placeholders).

@@ -22,7 +22,12 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      // 'wasm-unsafe-eval' libera SO a compilacao de WebAssembly, necessaria para o
+      // detector de rosto do MediaPipe (client/vendor/mediapipe) que faz os olhos do
+      // robo acompanharem a crianca. NAO libera eval() de JavaScript - essa e uma
+      // diretiva separada ('unsafe-eval'), que continua bloqueada. Sem isto o WASM e
+      // barrado silenciosamente e o rastreio nunca liga.
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:'],
@@ -61,9 +66,12 @@ app.use(rateLimit({
   message: { erro: 'Limite global de requisicoes excedido. Aguarde um momento.' },
   // SSE sao conexoes longas que ficam abertas: nao podem contar para o limite,
   // senao reconexoes legitimas (status, atividade do robo, monitor) sao barradas.
+  // A posicao do rosto (olhar) chega a ~10Hz com a camera ligada — sozinha ela
+  // estouraria o limite global em poucos segundos e derrubaria a sessao inteira.
   skip: (req) => req.path.startsWith('/api/esp/status/stream')
     || req.path.startsWith('/api/esp/atividade/stream')
-    || req.path.startsWith('/api/esp/monitor/stream'),
+    || req.path.startsWith('/api/esp/monitor/stream')
+    || req.path === '/api/esp/olhar',
 }))
 
 app.use(express.static(path.join(__dirname, '../client'), {
@@ -138,7 +146,6 @@ function aoSubir() {
   if (config.ESP_ENABLED) {
     console.log(`    Token:      ${config.ESP_TOKEN}`)
     console.log(`    Controle:   ws://<host>:${config.PORT}/ws/esp?token=${config.ESP_TOKEN}`)
-    console.log(`    Camera:     ws://<host>:${config.PORT}/ws/cam?token=${config.ESP_TOKEN}`)
   }
   console.log('========================================')
 
@@ -162,7 +169,7 @@ function shutdown(sinal) {
   // ficaria pendurado ate o timeout de 10s (saindo com codigo 1). Fechando-as
   // aqui, o close resolve na hora e o processo sai limpo (codigo 0).
   if (servidoresWs) {
-    for (const wss of [servidoresWs.wssControle, servidoresWs.wssCamera]) {
+    for (const wss of [servidoresWs.wssControle]) {
       if (!wss) continue
       for (const ws of wss.clients) {
         try { ws.terminate() } catch { /* socket ja fechado */ }

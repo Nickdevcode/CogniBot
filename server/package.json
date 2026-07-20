@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "vendor": "node scripts/baixar-mediapipe.js",
     "dev": "node --watch --watch-path=./modules --watch-path=./routes --watch-path=./config.js --watch-path=./index.js index.js",
     "check": "node --eval \"const{execSync}=require('child_process');const fs=require('fs');const path=require('path');function walk(d){return fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{const p=path.join(d,e.name);if(e.name==='node_modules')return[];return e.isDirectory()?walk(p):p.endsWith('.js')?[p]:[]})}for(const f of walk('.'))execSync('node --check '+JSON.stringify(f));console.log('Sintaxe OK')\""
   },

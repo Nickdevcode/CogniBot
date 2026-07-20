@@ -31,10 +31,7 @@ const refs = {
   dica: document.getElementById('dica'),
   statusServidor: document.getElementById('status-servidor'),
   statusEsp: document.getElementById('status-esp'),
-  statusCam: document.getElementById('status-cam'),
   toggleRobo: document.getElementById('toggle-robo'),
-  toggleCamRobo: document.getElementById('toggle-cam-robo'),
-  snapshotCam: document.getElementById('snapshot-cam'),
   grupoPareamento: document.getElementById('grupo-pareamento'),
   painelCodigo: document.getElementById('painel-codigo'),
   painelDica: document.getElementById('painel-dica'),
@@ -400,65 +397,24 @@ export function atualizarStatusServidor(ok, mensagem) {
 
 export function atualizarStatusESP(estado) {
   const elEsp = refs.statusEsp
-  const elCam = refs.statusCam
   const toggleRobo = refs.toggleRobo
-  const toggleCam = refs.toggleCamRobo
+  const conectados = estado?.controle?.conectados || 0
 
   if (elEsp) {
-    const conectados = estado?.controle?.conectados || 0
     elEsp.dataset.status = conectados > 0 ? 'ok' : 'off'
     const texto = elEsp.querySelector('.painel-pill-texto')
     if (texto) texto.textContent = conectados > 0 ? `${conectados} online` : 'Aguardando'
   }
 
-  if (elCam) {
-    const conectados = estado?.camera?.conectados || 0
-    const ultimoMs = estado?.camera?.ultimoFrameMs
-    let status = 'off'
-    let texto = 'Aguardando'
-    if (conectados > 0 && ultimoMs !== null && ultimoMs < 5000) {
-      status = 'ok'
-      texto = 'Transmitindo'
-    } else if (conectados > 0) {
-      status = 'aguardando'
-      texto = 'Conectada'
-    }
-    elCam.dataset.status = status
-    const t = elCam.querySelector('.painel-pill-texto')
-    if (t) t.textContent = texto
-  }
-
-  if (toggleRobo) toggleRobo.disabled = !(estado?.controle?.conectados > 0)
-  // Camera do robo e fase futura (ESP-CAM): o toggle permanece desabilitado
-  // ("em breve" no HTML). Nao reabilitamos aqui mesmo que algo conecte.
-  if (toggleCam) toggleCam.disabled = true
+  if (toggleRobo) toggleRobo.disabled = !(conectados > 0)
 
   if (refs.badgePainelMobile) {
-    const total = (estado?.controle?.conectados || 0) + (estado?.camera?.conectados || 0)
-    if (total > 0) {
-      refs.badgePainelMobile.textContent = String(total)
+    if (conectados > 0) {
+      refs.badgePainelMobile.textContent = String(conectados)
       refs.badgePainelMobile.hidden = false
     } else {
       refs.badgePainelMobile.hidden = true
     }
-  }
-}
-
-export function atualizarSnapshotCam(url) {
-  const el = refs.snapshotCam
-  if (!el) return
-  el.replaceChildren()
-  if (url) {
-    const img = document.createElement('img')
-    img.src = url
-    img.alt = 'Último frame da ESP-CAM'
-    img.loading = 'lazy'
-    el.appendChild(img)
-  } else {
-    const span = document.createElement('span')
-    span.className = 'snapshot-placeholder'
-    span.textContent = 'Sem imagem recente'
-    el.appendChild(span)
   }
 }
 

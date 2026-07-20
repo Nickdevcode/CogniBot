@@ -104,10 +104,39 @@ export async function definirRoboHabilitado(habilitado) {
   return jsonOk(resp)
 }
 
-// Interrompe o robo (encerra a fala/captura atual).
-export async function interromperRobo() {
-  const resp = await fetch(`${API_URL}/esp/interromper`, { method: 'POST' })
+// Interrompe o robo (encerra a fala/captura atual). `comFeedback=false` quando o
+// interromper e so uma etapa de outra acao (o reset, que ja mostra o proprio icone
+// no rosto do robo) — evita duas animacoes brigando no mesmo segundo.
+export async function interromperRobo(comFeedback = true) {
+  const resp = await fetch(`${API_URL}/esp/interromper`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedback: comFeedback }),
+  })
   return jsonOk(resp)
+}
+
+// Posição do rosto da criança (0..1) para os olhos do robô acompanharem. Vai a
+// ~10Hz, então é deliberadamente leve: sem await, sem tratamento de resposta, e
+// `keepalive` pra requisição não morrer se a página estiver ocupada. Perder uma
+// amostra não tem consequência — a próxima chega em 100ms.
+export function enviarOlhar(x, y) {
+  return fetch(`${API_URL}/esp/olhar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x, y }),
+    keepalive: true,
+  }).catch(() => {})
+}
+
+// Avisa o servidor que a webcam do PC ligou/desligou. A camera vive aqui no
+// navegador, entao sem este aviso o robo nao teria como reagir ao botao de camera.
+export function notificarCameraRobo(ativa) {
+  return fetch(`${API_URL}/esp/camera`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ativa }),
+  }).catch(() => {})   // feedback visual e enfeite: nunca quebra o toggle da camera
 }
 
 // Envia um frame da webcam do PC pro servidor (visao da Cogni no caminho do robo
@@ -136,5 +165,7 @@ export const api = {
   definirMicRobo,
   definirRoboHabilitado,
   interromperRobo,
+  notificarCameraRobo,
+  enviarOlhar,
   enviarFrameWebcam,
 }

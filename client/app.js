@@ -7,6 +7,7 @@ import {
   VAD_FRAMES_CONSECUTIVOS, VAD_FRAMES_INTERRUPCAO, GRACE_PERIOD_MS,
 } from './modules/audio.js'
 import { GerenciadorCamera, mensagemErroCamera } from './modules/camera.js'
+import { iniciarRastreio, pararRastreio } from './modules/rosto.js'
 import { lerStreamSSE } from './modules/sse.js'
 import {
   elementos, definirEstado, mostrarTelaUsuarios, mostrarTelaConversa,
@@ -363,6 +364,10 @@ function tratarAtividadeRobo(ev) {
         elementos.estadoTexto.textContent = TEXTOS_ESTADO_ROBO[novo]
       }
     }
+  } else if (ev.tipo === 'comando' && ev.acao === 'toggle-camera') {
+    // Botao FISICO de camera do robo: liga/desliga a webcam do PC (que vive aqui no
+    // navegador). Reusa o mesmo toggle do botao da interface.
+    toggleCamera().catch(() => {})
   }
 }
 
@@ -415,10 +420,16 @@ async function alternarModoRobo() {
     elementos.estadoTexto.textContent = 'Fale com o robô — ele está ouvindo'
     toast('Controlando o robô 🤖 — fale com ele', 'ok')
     logRobo('Modo robô LIGADO — robô acordado com o perfil atual')
+    // Câmera já estava ligada quando entrou no modo robô: começa a seguir o rosto
+    // agora (o toggleCamera só liga o rastreio se JÁ estivermos em modo robô).
+    if (camera.ativa) ligarRastreioDeRosto().catch(() => {})
   } else {
     // Saiu do modo robo: DESABILITA o robo (ele dorme, para de escutar e cala
     // qualquer fala em curso), restaura o botao de mic para o fluxo do navegador.
     try { await api.definirRoboHabilitado(false) } catch { /* ignora */ }
+    // Sem robô, ninguém consome a posição do rosto: para o detector e libera a CPU
+    // (a câmera em si continua ligada, alimentando a visão da Cogni).
+    pararRastreio()
     estado.micRoboMutado = false
     restaurarBotaoMicNavegador()
     aplicarEstado('idle')
@@ -578,8 +589,7 @@ async function enviarAudio(blob) {
   const inicio = Date.now()
 
   const usarRobo = elementos.toggleRobo?.checked || false
-  const usarCamRobo = elementos.toggleCamRobo?.checked || false
-  const imagemFrame = !usarCamRobo && camera.ativa ? camera.capturarFrame() : null
+  const imagemFrame = camera.ativa ? camera.capturarFrame() : null
 
   try {
     const resposta = await api.enviarConversa({
@@ -747,14 +757,28 @@ async function processarStream(resposta, inicio) {
   }
 }
 
+// Liga o rastreio de rosto que move os olhos do robô. Só faz sentido em modo robô
+// (é o robô que tem olhos) e com a câmera ligada. Falha silenciosa e sem barulho: se
+// o MediaPipe não estiver instalado, a câmera continua funcionando normalmente para
+// a visão da Cogni — só o olhar não acompanha.
+async function ligarRastreioDeRosto() {
+  if (!estaEmModoRobo()) return
+  await iniciarRastreio(elementos.cameraVideo, (pos) => {
+    if (!pos) return   // rosto fora de vista: o robô volta sozinho ao normal
+    api.enviarOlhar(pos.x, pos.y)
+  })
+}
+
 async function toggleCamera() {
   if (camera.ativa) {
+    pararRastreio()
     camera.desligar()
     elementos.cameraPreview.classList.add('oculto')
     elementos.cameraPreview.hidden = true
     elementos.btnCamera.classList.remove('ativo')
     elementos.btnCamera.setAttribute('aria-pressed', 'false')
     elementos.btnCamera.querySelector('.material-symbols-rounded').textContent = 'videocam_off'
+    if (estaEmModoRobo()) api.notificarCameraRobo(false)
     return
   }
 
@@ -765,6 +789,12 @@ async function toggleCamera() {
     elementos.btnCamera.classList.add('ativo')
     elementos.btnCamera.setAttribute('aria-pressed', 'true')
     elementos.btnCamera.querySelector('.material-symbols-rounded').textContent = 'videocam'
+    // Avisa o robo DEPOIS de ligar de fato: se o navegador negar a permissao, o
+    // rosto nao anuncia uma camera que nao abriu.
+    if (estaEmModoRobo()) {
+      api.notificarCameraRobo(true)
+      ligarRastreioDeRosto().catch(() => {})   // não bloqueia o toggle da câmera
+    }
   } catch (err) {
     mostrarErro(mensagemErroCamera(err))
   }
@@ -778,7 +808,9 @@ async function resetarConversa() {
   // conversa ja e compartilhado (o robo usa o mesmo usuarioId), entao o
   // api.resetarConversa abaixo zera o historico para os dois.
   if (estaEmModoRobo()) {
-    api.interromperRobo().catch(() => {})
+    // Sem feedback nos olhos: quem anuncia o reset no rosto do robo e o proprio
+    // /api/reset logo abaixo (icone de "recomecar", nao o de "pausa").
+    api.interromperRobo(false).catch(() => {})
   }
 
   try {
@@ -822,12 +854,6 @@ function configurarEventos() {
 
   elementos.toggleRobo?.addEventListener('change', () => {
     alternarModoRobo().catch((err) => logRobo(`Falha ao alternar modo robô: ${err.message}`))
-  })
-
-  elementos.toggleCamRobo?.addEventListener('change', (ev) => {
-    if (ev.target.checked && camera.ativa) {
-      toggleCamera().catch(() => {})
-    }
   })
 
   elementos.btnPainelMobile?.addEventListener('click', () => {
@@ -882,8 +908,7 @@ function configurarEventos() {
       resetarConversa()
     } else if (ev.key.toLowerCase() === 'c') {
       // Liga/desliga a webcam do PC. Vale tambem em modo robo: a webcam alimenta a
-      // visao da Cogni nos dois caminhos (interface e robo fisico). O toggle "camera
-      // do robo" (ESP-CAM) e que e fase futura — esse e outro controle.
+      // visao da Cogni nos dois caminhos (interface e robo fisico).
       toggleCamera().catch(() => {})
     }
   })

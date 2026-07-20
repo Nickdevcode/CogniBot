@@ -1042,7 +1042,10 @@ ul { list-style: none; }
   position: absolute;
   top: 16px;
   right: 16px;
-  width: 200px;
+  /* Acompanha a largura do palco em vez de ficar fixa: em telas grandes a previa
+     cresce (a webcam e a visao da Cogni, vale ver bem), mas nunca passa de 380px
+     pra nao competir com as legendas da conversa. */
+  width: clamp(240px, 26vw, 380px);
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--linha);
@@ -1109,10 +1112,6 @@ ul { list-style: none; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.painel-grupo--snapshot {
-  margin-top: auto;
 }
 
 .painel-linha {
@@ -1237,16 +1236,6 @@ ul { list-style: none; }
   cursor: not-allowed;
 }
 
-/* Linha de toggle de recurso ainda nao disponivel (ex: camera do robo). */
-.toggle-linha--desativada > span:first-child {
-  opacity: 0.55;
-}
-.toggle-linha--desativada small {
-  font-size: 0.82em;
-  color: var(--texto-3);
-  font-weight: 400;
-}
-
 .painel-dica {
   font-size: 11.5px;
   color: var(--texto-3);
@@ -1273,30 +1262,6 @@ ul { list-style: none; }
   user-select: all; /* clique seleciona o codigo inteiro pra copiar */
 }
 
-.snapshot {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background: var(--bg-elev-2);
-  border-radius: 6px;
-  border: 1px solid var(--linha-sutil);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-}
-
-.snapshot img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.snapshot-placeholder {
-  font-size: 11.5px;
-  color: var(--texto-4);
-  text-align: center;
-  padding: 8px;
-  letter-spacing: 0;
-}
 
 .rodape {
   padding: 20px 24px 28px;
@@ -1603,7 +1568,8 @@ ul { list-style: none; }
   .btn-controle { width: 40px; height: 40px; }
   .btn-mic { width: 56px; height: 56px; }
   .btn-mic .material-symbols-rounded { font-size: 20px; }
-  .camera-preview { width: 130px; }
+  /* Celular estreito: o clamp acima (min 240px) tomaria mais de metade da tela. */
+  .camera-preview { width: 150px; }
 }
 
 /* ============================================================
@@ -1945,23 +1911,6 @@ ul { list-style: none; }
 @keyframes pillEntrarOk {
   from { transform: scale(0.92); }
   to   { transform: scale(1); }
-}
-
-.snapshot {
-  position: relative;
-  transition: border-color var(--transicao);
-}
-
-.snapshot:has(img) {
-  border-color: var(--linha);
-}
-
-.snapshot img {
-  transition: transform var(--transicao-lenta);
-}
-
-.painel-grupo--snapshot:hover .snapshot img {
-  transform: scale(1.02);
 }
 
 .tela--conversa {
