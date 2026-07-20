@@ -1,5 +1,5 @@
 const config = require('../config')
-const { transcrever, sintetizarPcm, opcoesTranscricaoPadrao } = require('./speech')
+const { transcrever, sintetizarPcm, opcoesTranscricaoPadrao, openai } = require('./speech')
 const { conversar, conversarStream, idiomaParaTTS } = require('./brain')
 const { verificarEntrada, RESPOSTA_BLOQUEIO, ehTextoLixo } = require('./safety')
 const { carregarUsuario } = require('./memoria')
@@ -8,6 +8,7 @@ const { log } = require('./logger')
 const { transmitirAudio } = require('./monitor')
 const { emitirEstado, emitirTranscricao, emitirResposta, emitirReacao } = require('./esp-atividade')
 const { detectarReacao } = require('./esp-reacoes')
+const { detectarEmocaoIA } = require('./brain/emocao')
 
 const sessoes = new Map()
 
@@ -324,7 +325,21 @@ async function falarRespostaStream(sessao, texto, idadeUsuario, callbacks, durac
     // (amor da crianca vence celebra da Cogni) vive em detectarReacao. E pontual: a
     // tela anima alguns segundos SOBRE o rosto de estado e volta sozinha ao normal.
     const emocao = detectarReacao(resposta, texto)
-    if (emocao) emitirReacao(emocao)
+    if (emocao) {
+      emitirReacao(emocao)
+    } else {
+      // SEGUNDA CAMADA: o regex nao achou nada, entao perguntamos a IA. Vai SEM await
+      // de proposito - segurar o pipeline aqui atrasaria o audio, e uma expressao nao
+      // vale meio segundo de silencio a mais na conversa. Quando a resposta chegar o
+      // robo ainda estara falando, e a cara dele muda no meio da frase: parece alguem
+      // se dando conta do que ouviu.
+      //
+      // Se a sessao ja tiver sido interrompida nesse meio tempo, engolimos - reagir a
+      // uma fala que a crianca cortou seria estranho.
+      detectarEmocaoIA(openai, config.CHAT_MODEL_AUX, texto, resposta)
+        .then((emo) => { if (emo && !sessao.interrompido) emitirReacao(emo) })
+        .catch(() => {})
+    }
   }
 
   // Espera todos os TTS em voo e despacha o que faltou, na ordem.

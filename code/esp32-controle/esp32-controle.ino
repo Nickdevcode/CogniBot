@@ -135,9 +135,26 @@ static unsigned long ultimoChunkMs = 0;   // marca quando chegou o ultimo chunk
 // transferencia, restaurando depois para clkAfter - ou seja, um Wire.setClock() nosso
 // em configurarTela() seria simplesmente sobrescrito pela lib e nao teria efeito
 // nenhum. Por isso a velocidade entra por aqui.
-static Adafruit_SSD1306 display(COGNI_OLED_LARGURA, COGNI_OLED_ALTURA, &Wire, -1,
-                                COGNI_OLED_I2C_HZ);
-static RoboEyes<Adafruit_SSD1306> roboEyes(display);
+// Subclasse do display, criada por um motivo unico: pendurar uma CAMADA DE CIMA (as
+// sobrancelhas) dentro do mesmo envio ao I2C.
+//
+// Como funciona: a RoboEyes e um TEMPLATE sobre o tipo do display e, no fim de cada
+// quadro, chama display->display(). Instanciando ela sobre esta subclasse, a chamada e
+// resolvida em tempo de compilacao para a NOSSA versao - o que funciona mesmo o metodo
+// da Adafruit nao sendo virtual (e ele nao e), e sem precisar forkar a RoboEyes, que e
+// GPLv3 e traria a licenca junto para o projeto.
+//
+// A alternativa obvia - desenhar a sobrancelha depois e chamar display() de novo -
+// DOBRARIA o custo do quadro (23ms viram 46ms de I2C) e cortaria a taxa pela metade.
+class TelaCogni : public Adafruit_SSD1306 {
+public:
+  using Adafruit_SSD1306::Adafruit_SSD1306;
+  void display();   // definida adiante, junto das rotinas de desenho
+};
+
+static TelaCogni display(COGNI_OLED_LARGURA, COGNI_OLED_ALTURA, &Wire, -1,
+                         COGNI_OLED_I2C_HZ);
+static RoboEyes<TelaCogni> roboEyes(display);
 static bool telaOk = false;
 static TaskHandle_t tarefaOlhoHandle = nullptr;
 // Altura padrao dos olhos, capturada no boot. A reacao SURPRESA arregala os olhos
@@ -227,6 +244,57 @@ static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao
 #define COGNI_IDLE_ANIM_MAX_MS 15000UL
 #endif
 static unsigned long proximaAnimEspontaneaMs = 0;
+
+// ---------------------------------------------------------------------
+// MOTOR DE EMOCAO: humor que persiste e decai, em vez de reacoes avulsas
+// ---------------------------------------------------------------------
+// Ate aqui uma reacao era um evento sem memoria: aparecia o coracao, passavam 2,2s, e
+// o robo voltava a ser exatamente o mesmo de antes. Isso e o que faz um robo parecer
+// ter GATILHOS em vez de ter humor. A Anki resolveu o mesmo problema no Cozmo com o
+// que eles chamaram de "emotion engine": um estado emocional continuo que as
+// interacoes empurram e que volta sozinho ao neutro.
+//
+// Dois eixos (o modelo classico de valencia/excitacao da psicologia do afeto):
+//   VALENCIA   -100 (pra baixo) .. +100 (pra cima)  -> se e uma emocao boa ou ruim
+//   EXCITACAO     0 (quieto)    .. +100 (eletrico)  -> o quanto ela agita
+// Um elogio nao "mostra um coracao": ele deixa o robo de bom humor, e o bom humor
+// aparece no rosto pelos minutos seguintes.
+//
+// volatile: empurrado no callback do WS (core 1) e lido/decaido na task da tela
+// (core 0). Escrita de 16 bits e atomica no ESP32.
+static volatile int16_t humorValencia = 0;
+static volatile int16_t humorExcitacao = 0;
+
+#ifndef COGNI_EMOCAO_MEIA_VIDA_MS
+#define COGNI_EMOCAO_MEIA_VIDA_MS 45000UL
+#endif
+#ifndef COGNI_EMOCAO_LIMIAR
+#define COGNI_EMOCAO_LIMIAR 18
+#endif
+
+// ---------------------------------------------------------------------
+// SOBRANCELHAS
+// ---------------------------------------------------------------------
+// Duas barrinhas acima dos olhos - o maior ganho de expressividade por pixel gasto que
+// existe numa tela deste tamanho. Olhos sozinhos nao distinguem bem "bravo" de
+// "concentrado" nem "triste" de "sonolento"; com sobrancelha a leitura e imediata.
+#ifndef COGNI_SOBRANCELHA_LIGADA
+#define COGNI_SOBRANCELHA_LIGADA 1
+#endif
+#ifndef COGNI_SOBRANCELHA_GROSSURA
+#define COGNI_SOBRANCELHA_GROSSURA 3
+#endif
+#ifndef COGNI_SOBRANCELHA_FOLGA
+#define COGNI_SOBRANCELHA_FOLGA 5
+#endif
+#ifndef COGNI_SOBRANCELHA_LARGURA
+#define COGNI_SOBRANCELHA_LARGURA 26
+#endif
+// Inclinacao atual das sobrancelhas, em milesimos de "altura por metade da largura".
+// Positivo = pontas de dentro pra BAIXO (bravo/concentrado); negativo = pontas de
+// dentro pra CIMA (triste/preocupado); zero = neutro. Quem escreve e o humor.
+static volatile int16_t sobrancelhaInclinacao = 0;
+static volatile bool    sobrancelhaVisivel = false;
 
 // ---------------------------------------------------------------------
 // VIVACIDADE: os micro-movimentos que separam "rosto vivo" de "imagem parada"
@@ -1282,6 +1350,102 @@ static Rosto calcularRosto() {
   return ROSTO_IDLE;
 }
 
+// Empurra o humor, com trava nos extremos. Uma unica interacao nunca leva o robo do
+// neutro ao maximo: os impactos sao deliberadamente pequenos perto da escala, entao o
+// humor e resultado do ACUMULO de uma conversa, e nao de uma frase isolada.
+static void empurrarHumor(int dValencia, int dExcitacao) {
+  int v = humorValencia + dValencia;
+  int e = humorExcitacao + dExcitacao;
+  humorValencia  = (int16_t) constrain(v, -100, 100);
+  humorExcitacao = (int16_t) constrain(e, 0, 100);
+}
+
+// Traduz uma reacao no empurrao emocional que ela causa. Comandos (mic, pausa, reset)
+// e icones de materia ficam de fora de proposito: sao feedback de interface, nao
+// emocao - o robo nao fica feliz porque alguem apertou um botao.
+static void aplicarImpactoEmocional(Reacao r) {
+  switch (r) {
+    case REACAO_AMOR:      empurrarHumor(+35, +15); break;
+    case REACAO_CELEBRA:   empurrarHumor(+30, +25); break;
+    case REACAO_RISO:      empurrarHumor(+25, +30); break;
+    case REACAO_IDEIA:     empurrarHumor(+15, +20); break;
+    case REACAO_PISCADELA: empurrarHumor(+10,  +5); break;
+    case REACAO_OLA:       empurrarHumor(+15, +10); break;
+    case REACAO_SURPRESA:  empurrarHumor( +5, +35); break;
+    case REACAO_CONFUSO:   empurrarHumor(-10, +10); break;
+    case REACAO_SUOR:      empurrarHumor(-12, +15); break;
+    case REACAO_TRISTE:    empurrarHumor(-30, -10); break;
+    case REACAO_TCHAU:     empurrarHumor(-15, -10); break;
+    default: break;   // comandos e materias nao mexem no humor
+  }
+}
+
+// Puxa o humor de volta ao neutro com o tempo. Chamada a cada quadro; ela mesma decide
+// se ja passou tempo suficiente para dar mais um passo.
+//
+// O decaimento e exponencial APROXIMADO: a cada 1/5 da meia-vida tiramos 1/8 do valor
+// atual (0,875^5 ~= 0,51, ou seja, meia-vida na pratica). Preferimos essa aritmetica
+// inteira a uma exponencial de verdade para nao pagar float no caminho quente.
+//
+// O PISO DE 1 nao e detalhe: divisao inteira trunca em direcao a zero, entao com o
+// valor pequeno o passo vira exatamente 0 e o humor FICA PRESO pra sempre num
+// resquicio - exatamente o bug que ja mordeu o envelope da fala (ver animarFala).
+static void decairHumor() {
+  static unsigned long proximoPassoMs = 0;
+  const unsigned long agora = millis();
+  if ((long) (agora - proximoPassoMs) < 0) return;
+  proximoPassoMs = agora + (COGNI_EMOCAO_MEIA_VIDA_MS / 5);
+
+  int v = humorValencia;
+  if (v != 0) {
+    int passo = v / 8;
+    if (passo == 0) passo = (v > 0) ? 1 : -1;
+    v -= passo;
+  }
+  int e = humorExcitacao;
+  if (e != 0) {
+    int passo = e / 8;
+    if (passo == 0) passo = 1;
+    e -= passo;
+  }
+  humorValencia  = (int16_t) v;
+  humorExcitacao = (int16_t) e;
+}
+
+// Traduz o humor em rosto. So atua nos estados "neutros" (repouso e escutando): nos
+// demais o proprio estado ja tem uma expressao com significado proprio - o PESQUISANDO
+// esta varrendo, o FALANDO esta com a boca/olho no envelope - e sobrepor humor ali
+// atrapalharia a leitura em vez de enriquecer.
+//
+// Alem do mood, mexemos no RAIO DA BORDA: olho redondo le como fofo/acolhedor e olho
+// quadrado le como severo/serio. E um dos achados mais solidos da literatura de design
+// de rosto de robo, e sai de graca - e so um parametro que a lib ja aceitava e que
+// nunca tinhamos usado.
+static void aplicarHumorNoRosto(Rosto rosto) {
+  const int v = humorValencia;
+  const int e = humorExcitacao;
+
+  if (rosto == ROSTO_IDLE || rosto == ROSTO_OUVINDO) {
+    if (v >= COGNI_EMOCAO_LIMIAR)       roboEyes.setMood(HAPPY);
+    else if (v <= -COGNI_EMOCAO_LIMIAR) roboEyes.setMood(TIRED);
+    else                                 roboEyes.setMood(DEFAULT);
+
+    // Redondo quando feliz (8 -> 12), anguloso quando pra baixo (8 -> 5).
+    const int raio = 8 + (v * 4) / 100;
+    roboEyes.setBorderradius(raio, raio);
+
+    // Agitado pisca mais; quieto pisca menos. Intervalo base de 3s indo a ~1,5s no
+    // maximo de excitacao - piscar rapido le como nervoso/alerta.
+    const int intervalo = 3 - (e >= 60 ? 1 : 0);
+    roboEyes.setAutoblinker(ON, intervalo, 2);
+  }
+
+  // Sobrancelha acompanha a valencia em QUALQUER estado (menos dormindo, tratado por
+  // quem chama): e o canal mais legivel que temos, entao vale mante-lo sempre ativo.
+  // Pontas de dentro pra baixo quando bravo/serio, pra cima quando triste.
+  sobrancelhaInclinacao = (int16_t) (-v);
+}
+
 // Aplica uma expressao aos olhos. Chamada SO na transicao (nao a cada frame), para
 // nao reiniciar as animacoes internas da RoboEyes. Cada caso primeiro normaliza os
 // modificadores (flicker/curiosidade) e depois configura mood/posicao/piscar.
@@ -1340,6 +1504,14 @@ static void aplicarRosto(Rosto r) {
       roboEyes.setIdleMode(ON, 2, 2);
       break;
   }
+
+  // Dormindo nao tem sobrancelha: com o olho fechado ela viraria um risco solto no
+  // meio da tela, sem nada embaixo que a explique.
+  sobrancelhaVisivel = (COGNI_SOBRANCELHA_LIGADA) && (r != ROSTO_DORMINDO);
+
+  // O humor entra POR ULTIMO, de proposito: ele refina o que o estado acabou de
+  // definir (mood, raio da borda, ritmo da piscada) e precisa ter a ultima palavra.
+  aplicarHumorNoRosto(r);
 }
 
 // Aplica o ENVELOPE DA FALA na altura dos olhos. Chamada a cada frame da task da
@@ -1801,6 +1973,56 @@ static void limparReacao(Reacao r) {
   if (r == REACAO_SURPRESA) roboEyes.setHeight(alturaOlhoPadrao, alturaOlhoPadrao);
 }
 
+// Quando true, o quadro em construcao e um ICONE (coracao, microfone, materia) e nao
+// um rosto - entao a sobrancelha nao entra, porque nao ha olho embaixo dela.
+static bool desenhandoIcone = false;
+
+// Barra grossa e inclinada, montada com dois triangulos (a GFX nao tem linha com
+// espessura). Vai da ponta esquerda a direita, com a altura descendo `grossura`.
+static void desenharBarraInclinada(int x0, int y0, int x1, int y1, int grossura) {
+  display.fillTriangle(x0, y0, x1, y1, x1, y1 + grossura, MAINCOLOR);
+  display.fillTriangle(x0, y0, x0, y0 + grossura, x1, y1 + grossura, MAINCOLOR);
+}
+
+// Desenha as duas sobrancelhas por cima do rosto ja renderizado, logo antes do frame
+// ser empurrado para a tela.
+//
+// A inclinacao vem do humor e e ESPELHADA entre os olhos: o que importa para a leitura
+// e a ponta de DENTRO (a do lado do nariz). Ponta de dentro pra baixo = bravo,
+// concentrado; pra cima = triste, preocupado. Se as duas inclinassem para o mesmo lado
+// o rosto ficaria so torto, sem emocao nenhuma.
+static void desenharSobrancelhas() {
+  if (!sobrancelhaVisivel || desenhandoIcone) return;
+
+  const int incl = sobrancelhaInclinacao;                 // -100..100
+  const int desnivel = (incl * 6) / 100;                  // no maximo 6px de queda
+  const int meia = COGNI_SOBRANCELHA_LARGURA / 2;
+
+  // Centro horizontal de cada olho e o topo de cada um, lidos da propria lib para a
+  // sobrancelha acompanhar o olho em TUDO: posicao do olhar, sacada, respiracao e ate
+  // o pulsar do envelope da fala. Sem isso ela descolaria do rosto no primeiro movimento.
+  const int cxE = roboEyes.eyeLx + roboEyes.eyeLwidthCurrent / 2;
+  const int cxD = roboEyes.eyeRx + roboEyes.eyeRwidthCurrent / 2;
+  const int topoE = roboEyes.eyeLy - COGNI_SOBRANCELHA_FOLGA - COGNI_SOBRANCELHA_GROSSURA;
+  const int topoD = roboEyes.eyeRy - COGNI_SOBRANCELHA_FOLGA - COGNI_SOBRANCELHA_GROSSURA;
+
+  // Olho ESQUERDO: a ponta de dentro e a da direita.
+  desenharBarraInclinada(cxE - meia, topoE - desnivel / 2,
+                         cxE + meia, topoE + desnivel / 2,
+                         COGNI_SOBRANCELHA_GROSSURA);
+  // Olho DIREITO: espelhado - a ponta de dentro e a da esquerda.
+  desenharBarraInclinada(cxD - meia, topoD + desnivel / 2,
+                         cxD + meia, topoD - desnivel / 2,
+                         COGNI_SOBRANCELHA_GROSSURA);
+}
+
+// O override que existe por causa do template da RoboEyes (ver a nota na declaracao da
+// classe): a camada de cima entra aqui, no MESMO envio ao barramento.
+void TelaCogni::display() {
+  desenharSobrancelhas();
+  Adafruit_SSD1306::display();
+}
+
 // Monta um frame 100% CUSTOM: a tela deixa de ser um rosto e vira um icone (coracoes,
 // estrelas, microfone, pausa, o simbolo da materia...). Fica numa funcao propria - e
 // nao dentro da task - para o laco de animacao continuar legivel e para o gate de FPS
@@ -1812,6 +2034,7 @@ static void limparReacao(Reacao r) {
 // Convencao visual: EMOCAO ocupa os dois olhos (dois desenhos lado a lado); COMANDO e
 // MATERIA desenham UM icone no centro.
 static void desenharFrameCustom(Reacao r, bool pulsoGrande, unsigned long inicioReacaoMs) {
+  desenhandoIcone = true;    // segura a sobrancelha: aqui nao ha olho embaixo dela
   roboEyes.display->clearDisplay();
   const int cx = COGNI_OLED_LARGURA / 2, cy = COGNI_OLED_ALTURA / 2;
   switch (r) {
@@ -1854,6 +2077,7 @@ static void desenharFrameCustom(Reacao r, bool pulsoGrande, unsigned long inicio
       break;
   }
   roboEyes.display->display();
+  desenhandoIcone = false;
 }
 
 // Inicializa o I2C remapeado e a tela; liga a RoboEyes. Retorna sem marcar telaOk
@@ -1895,8 +2119,13 @@ static void tarefaOlho(void* arg) {
   bool seguindoRosto = false;            // se estamos perseguindo o alvo da webcam
   bool jaViuAlguem = false;              // ja houve um rosto em algum momento?
   bool sentiuFalta = false;              // ja reagiu a esta ausencia? (evita looping)
+  unsigned long ultimoHumorMs = 0;       // ultimo refresh do humor no rosto
 
   for (;;) {
+    // O humor decai o tempo todo, inclusive DURANTE uma reacao - senao uma sequencia
+    // de reacoes seguidas congelaria o robo no auge da emocao.
+    decairHumor();
+
     Reacao r = reacaoAtiva;
 
     // Reacao expirada: desfaz o efeito e volta ao rosto de estado.
@@ -1911,6 +2140,10 @@ static void tarefaOlho(void* arg) {
       if (r != ultimaReacao) {             // transicao: limpa a anterior e arma a nova
         if (ultimaReacao != REACAO_NENHUMA) limparReacao(ultimaReacao);
         iniciarReacao(r);
+        // Funil unico de TODAS as reacoes (as da lib e as de desenho custom), entao e
+        // o lugar certo para o humor ser empurrado - vale tanto para o que o servidor
+        // manda quanto para as espontaneas do idle.
+        aplicarImpactoEmocional(r);
         ultimaReacao = r;
         ultimoRedisparoMs = inicioReacaoMs = millis();
         ultimoRosto = (Rosto) 255;         // ao sair da reacao, reaplica o rosto
@@ -1980,6 +2213,15 @@ static void tarefaOlho(void* arg) {
       // Envelope da fala: NAO usa `atual == ROSTO_FALANDO` como gate. O rosto volta
       // pra idle assim que o servidor manda o fim, mas ainda ha ate ~340ms de audio
       // no DMA - quem manda parar e o proprio envelope secar.
+      // O humor muda sozinho (decaimento) sem que o ESTADO mude, e aplicarRosto() so
+      // roda na transicao - sem este refresh o rosto so descobriria que o robo esta de
+      // bom humor na proxima vez que alguem falasse com ele. Uma vez por segundo e
+      // suficiente: o decaimento e lento e a mudanca precisa ser imperceptivel.
+      if (millis() - ultimoHumorMs > 1000) {
+        ultimoHumorMs = millis();
+        aplicarHumorNoRosto(atual);
+      }
+
       // Micro-movimentos por cima de tudo o que ja foi decidido acima. Fora em dois
       // casos: DORMINDO (olho fechado, nao ha o que tremer) e PESQUISANDO, onde a
       // varredura escreve a posicao de forma ABSOLUTA a cada quadro e atrapalharia a
