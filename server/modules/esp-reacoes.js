@@ -41,6 +41,12 @@ const REGRAS = [
   // Errinho/vergonha (de qualquer lado) -> gota de suor.
   { emocao: 'suor', alvo: 'ambos',
     re: /\b(ops|foi mal|desculp[ae]|errei|me enganei|que vergonha|foi sem querer)\b/ },
+  // Cumplicidade: combinado, agradecimento, segredinho -> piscadela.
+  // ULTIMA REGRA de proposito. Estes termos sao fracos e aparecem junto de coisas mais
+  // fortes ("tchau, valeu" e uma despedida, nao uma piscadela), entao ela so vence
+  // quando nenhuma emocao de verdade casou antes.
+  { emocao: 'piscadela', alvo: 'ambos',
+    re: /\b(combinado|fechou|beleza|valeu|obrigad[ao]|pode deixar|so entre nos|nosso segredo|ta combinado|conta comigo)\b/ },
 ]
 
 // Decide UMA reacao (ou null) a partir da fala da crianca e da resposta da Cogni.

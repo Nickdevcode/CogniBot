@@ -100,16 +100,131 @@
 #define COGNI_OLED_ADDR            0x3C // endereco I2C tipico (use 0x3D se um scan I2C acusar)
 #define COGNI_OLED_LARGURA         128
 #define COGNI_OLED_ALTURA          64
-#define COGNI_OLED_FPS             50   // teto de quadros/s da animacao dos olhos
+// TETO de quadros/s da animacao. ATENCAO: este numero e um teto de SOFTWARE, e o
+// barramento e mais lento que ele. Um frame cheio sao 1024 bytes de framebuffer e,
+// no I2C, cada byte custa 9 bits (8 + ACK):
+//
+//     1024 x 9 = 9216 bits / 400000 Hz  ~=  23 ms por frame  ->  teto REAL ~43 FPS
+//
+// Ou seja: pedir 50 aqui nao faz o rosto passar de ~43. Quem manda e o COGNI_OLED_I2C_HZ
+// logo abaixo. Deixamos 50 de proposito (pedir mais que o barramento entrega nao custa
+// nada e aproveita automaticamente se voce acelerar o I2C).
+#define COGNI_OLED_FPS             50
+// Velocidade do barramento I2C da tela. O datasheet do SSD1306/SSD1309 especifica
+// 400 kHz como maximo oficial, e e por isso que este e o padrao seguro. Na pratica a
+// maioria dos modulos aguenta 800000 no ESP32, o que DOBRA o teto de quadros (~87 FPS)
+// e deixa a animacao visivelmente mais fluida.
+// COMO TESTAR: troque para 800000, grave e olhe a tela por um minuto. Se aparecer
+// lixo/chuvisco, pixels presos ou a tela congelar, seu modulo nao aguenta - volte para
+// 400000. Nao ha risco de dano, o pior caso e a imagem corromper.
+#define COGNI_OLED_I2C_HZ          400000UL
 // Duracao (ms) de uma REACAO pontual dos olhos (coracoes/riso/confuso...), disparada
 // pelo servidor pelo conteudo da conversa. Passado esse tempo, os olhos voltam ao
 // rosto de estado (ouvindo/pensando/falando/idle).
 #define COGNI_REACAO_DURACAO_MS    2200UL
+// Feedback de COMANDO (mic, pausa, reset, camera) e mais curto de proposito: e um
+// "recebido!", nao uma emocao pra saborear.
+#define COGNI_COMANDO_DURACAO_MS   1400UL
+// Icone da MATERIA do assunto: um pouco mais longo que o comando - a crianca precisa
+// reconhecer o desenho, nao so notar que algo piscou.
+#define COGNI_MATERIA_DURACAO_MS   1500UL
+// Se a fala comecar com o icone de materia ainda no ar, ele e cortado para este tempo:
+// a tela nao pode ficar congelada num icone enquanto a voz ja esta tocando.
+#define COGNI_MATERIA_CORTE_FALA_MS 400UL
+// Tempo de uma ida-e-volta completa da varredura do rosto PESQUISANDO.
+#define COGNI_VARREDURA_PERIODO_MS 1600UL
+// Por quanto tempo uma posicao de olhar recebida do servidor continua valendo. Cobre
+// com folga o intervalo de 100ms do navegador, entao um engasgo de rede nao faz o
+// robo largar o olhar no meio da interacao.
+#define COGNI_OLHAR_VALIDADE_MS    1200UL
+// Depois de quanto tempo SEM NENHUMA atividade de conversa o robo cochila. Estar em
+// frente a camera NAO conta como atividade (senao ele ficaria acordado a noite toda
+// so por ter gente na sala).
+#define COGNI_INATIVIDADE_SONO_MS  120000UL
 // VIDA PROPRIA: quando ocioso (idle), o robo dispara reacoes espontaneas aleatorias
 // (piscadinha, risadinha, coracao...) num intervalo aleatorio entre MIN e MAX ms.
 // Menor = mais "vivo"/agitado; maior = mais calmo. Aumente se achar que anima demais.
 #define COGNI_IDLE_ANIM_MIN_MS     6000UL
 #define COGNI_IDLE_ANIM_MAX_MS     15000UL
+
+// -----------------------------------------------------------------------
+// ENVELOPE DA FALA (os olhos pulsam no ritmo da propria voz)
+// -----------------------------------------------------------------------
+// Ganho aplicado a amplitude do audio antes de virar altura de olho. O TTS fica em
+// torno de 2000-6000 de media retificada (de um maximo de 32767); dividir pelo maximo
+// real deixaria o rosto praticamente parado.
+#define COGNI_FALA_GANHO           24
+// Quantos pixels a altura do olho varia entre o silencio e o pico. Lembre que o mood
+// HAPPY (usado ao falar) cobre metade do olho com a palpebra de baixo, entao o
+// movimento APARENTE e cerca da metade deste valor.
+#define COGNI_FALA_AMPLITUDE       16
+// Intervalo aleatorio entre as piscadas durante a fala. (Durante a fala o autoblinker
+// da biblioteca fica desligado - ver o comentario em aplicarRosto.)
+#define COGNI_FALA_PISCADA_MIN_MS  3000UL
+#define COGNI_FALA_PISCADA_MAX_MS  5000UL
+// Tamanho do ring buffer do envelope. DEVE ser potencia de 2 (o indice usa mascara).
+// Cada entrada cobre ~10,7ms de audio, entao 64 = ~683ms de historico - folga
+// suficiente para compensar os ~340ms de colchao do DMA.
+#define COGNI_ENVELOPE_RING        64
+
+// -----------------------------------------------------------------------
+// VIVACIDADE: micro-movimentos que fazem o rosto parecer vivo
+// -----------------------------------------------------------------------
+// MICRO-SACADAS: olho humano nunca fica completamente parado - ele salta em pequenos
+// movimentos involuntarios varias vezes por segundo. Sem isso o rosto parece uma
+// imagem congelada. Amplitude em pixels e intervalo aleatorio entre os saltos.
+#define COGNI_SACADA_AMPLITUDE     2
+#define COGNI_SACADA_MIN_MS        280UL
+#define COGNI_SACADA_MAX_MS        900UL
+// RESPIRACAO: oscilacao lenta e continua da altura dos olhos no repouso, como um peito
+// subindo e descendo. Amplitude em pixels (1-2 e o ideal: precisa ser quase
+// subliminar) e periodo de um ciclo completo.
+#define COGNI_RESPIRACAO_AMPLITUDE 2
+#define COGNI_RESPIRACAO_PERIODO_MS 4200UL
+// OLHOS VESGOS DE PERTO: quando a crianca chega muito perto da camera, o robo fica
+// vesgo, como uma pessoa tentando focar algo colado no nariz. O limiar e o tamanho do
+// rosto na imagem (em milesimos da largura do quadro) a partir do qual comeca a valer.
+// Maior = precisa chegar mais perto. O ESPACO e quanto os olhos se aproximam (a
+// biblioteca aceita espacamento negativo, que e o que cruza os olhos de fato).
+#define COGNI_VESGO_LIMIAR         420
+#define COGNI_VESGO_ESPACO_MIN     -6
+// SENTIR-SE IGNORADO: depois de ter visto um rosto, se ele sumir do quadro por este
+// tempo o robo procura em volta e fica tristinho. So vale com a camera ligada.
+#define COGNI_IGNORADO_MS          12000UL
+
+// -----------------------------------------------------------------------
+// MOTOR DE EMOCAO (humor que persiste e decai, em vez de reacoes avulsas)
+// -----------------------------------------------------------------------
+// O robo mantem um HUMOR continuo em dois eixos - valencia (-100 triste .. +100 feliz)
+// e excitacao (0 calmo .. 100 agitado) - que as reacoes empurram e que volta sozinho
+// ao neutro com o tempo. E o que faz um elogio "deixar ele feliz por um tempinho" em
+// vez de so disparar um coracao e esquecer.
+// MEIA-VIDA: a cada X ms o humor perde METADE da distancia ate o neutro. Menor = mais
+// volatil/esquecido; maior = mais rancoroso e mais grudento.
+#define COGNI_EMOCAO_MEIA_VIDA_MS  45000UL
+// Quanto o humor precisa se afastar do neutro para comecar a aparecer no rosto
+// (sobrancelhas, curvatura). Evita que ruidinho de humor fique mexendo a cara toda hora.
+#define COGNI_EMOCAO_LIMIAR        18
+
+// -----------------------------------------------------------------------
+// SOBRANCELHAS
+// -----------------------------------------------------------------------
+// Duas barrinhas acima dos olhos. E o maior ganho de expressividade por pixel gasto:
+// com elas o rosto distingue bravo, triste, curioso e surpreso, coisa que os olhos
+// sozinhos nao dao conta. Ligue/desligue e ajuste a grossura e o afastamento do olho.
+#define COGNI_SOBRANCELHA_LIGADA   1
+#define COGNI_SOBRANCELHA_GROSSURA 3    // altura da barra, em pixels
+#define COGNI_SOBRANCELHA_FOLGA    5    // distancia acima do topo do olho
+#define COGNI_SOBRANCELHA_LARGURA  26   // comprimento da barra
+
+// -----------------------------------------------------------------------
+// MICRO-HISTORIAS NO REPOUSO
+// -----------------------------------------------------------------------
+// De vez em quando, parado, o robo "vive" uma cena curta em vez de so piscar: segue
+// uma mosca invisivel com os olhos, fica tonto, cochila aos poucos. Intervalo entre
+// as cenas (elas concorrem com as reacoes espontaneas simples).
+#define COGNI_HISTORIA_MIN_MS      25000UL
+#define COGNI_HISTORIA_MAX_MS      55000UL
 
 // =======================================================================
 // Comportamento de audio

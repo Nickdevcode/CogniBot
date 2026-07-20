@@ -120,10 +120,23 @@ static unsigned long ultimoChunkMs = 0;   // marca quando chegou o ultimo chunk
 // ---------------------------------------------------------------------
 // Tela OLED (olhos do robo) + estado das expressoes
 // ---------------------------------------------------------------------
+// Velocidade do barramento da tela. Fallback aqui para nao quebrar quem ainda tem um
+// config.h antigo (o valor "de verdade" e documentado no config.example.h).
+#ifndef COGNI_OLED_I2C_HZ
+#define COGNI_OLED_I2C_HZ 400000UL
+#endif
+
 // Display SSD1309 (compativel com o driver SSD1306) 128x64 no barramento I2C
 // remapeado (SDA/SCL de config.h). reset = -1: o modulo de 4 pinos nao expoe um
 // pino RESET, entao confiamos no reset RC de fabrica do modulo.
-static Adafruit_SSD1306 display(COGNI_OLED_LARGURA, COGNI_OLED_ALTURA, &Wire, -1);
+//
+// O 5o parametro (clkDuring) e o que REALMENTE define a velocidade da tela. A
+// Adafruit_SSD1306 guarda esse valor em wireClk e reaplica Wire.setClock() a cada
+// transferencia, restaurando depois para clkAfter - ou seja, um Wire.setClock() nosso
+// em configurarTela() seria simplesmente sobrescrito pela lib e nao teria efeito
+// nenhum. Por isso a velocidade entra por aqui.
+static Adafruit_SSD1306 display(COGNI_OLED_LARGURA, COGNI_OLED_ALTURA, &Wire, -1,
+                                COGNI_OLED_I2C_HZ);
 static RoboEyes<Adafruit_SSD1306> roboEyes(display);
 static bool telaOk = false;
 static TaskHandle_t tarefaOlhoHandle = nullptr;
@@ -1286,8 +1299,10 @@ static bool animarFala() {
   static unsigned long piscandoAteMs = 0;
 
   // Consome tudo o que JA deveria estar soando. Pode haver mais de uma amostra por
-  // quadro: o audio produz a cada ~10,7ms e a tela desenha a cada ~25ms. Fica com a
-  // ultima madura; a primeira que ainda nao "chegou a hora" interrompe o laco.
+  // quadro: o audio produz a cada ~10,7ms e a tela desenha, na melhor das hipoteses, a
+  // cada 20ms (COGNI_OLED_FPS) - na pratica ~23ms, que e o tempo de empurrar o frame
+  // inteiro pelo I2C a 400kHz. Fica com a ultima madura; a primeira que ainda nao
+  // "chegou a hora" interrompe o laco.
   int bruto = -1;
   while (envelopeCauda != envelopeCabeca) {
     const AmostraEnvelope& a = envelopeRing[envelopeCauda];
@@ -1346,11 +1361,18 @@ static bool animarFala() {
 // O X e ESPELHADO de proposito: a webcam mostra a cena como um espelho, entao quando
 // a crianca anda pra direita dela, o rosto vai pra ESQUERDA na imagem. Sem inverter,
 // o robo olharia sempre pro lado oposto de onde ela esta.
-static bool animarOlhar() {
+static bool animarOlhar(Rosto rosto) {
   if (millis() - ultimoOlharMs > COGNI_OLHAR_VALIDADE_MS) return false;
 
   const int alvoX = (1000 - alvoOlharX) * roboEyes.getScreenConstraint_X() / 1000;
-  const int alvoY = alvoOlharY * roboEyes.getScreenConstraint_Y() / 1000;
+  int alvoY = alvoOlharY * roboEyes.getScreenConstraint_Y() / 1000;
+
+  // PENSANDO olha pra cima - mas aplicarRosto() so faz isso na TRANSICAO (setPosition(N)),
+  // e nos reescrevemos eyeLyNext a cada quadro. Resultado: com a camera ligada o olhar
+  // pensativo simplesmente sumia, porque o alvo do rosto detectado ganhava sempre.
+  // Aqui os dois convivem: seguimos a crianca no horizontal (que e o que da a sensacao
+  // de "ele me olha") mas puxamos o vertical pra cima, preservando a pose pensativa.
+  if (rosto == ROSTO_PENSANDO) alvoY /= 3;
   // Persegue por aproximacao (1/4 da distancia por quadro) em vez de saltar: o
   // detector entrega a posicao aos degraus de 100ms e o olho ficaria "tremendo".
   roboEyes.eyeLxNext += (alvoX - roboEyes.eyeLxNext) / 4;
@@ -1575,11 +1597,22 @@ static inline bool reacaoEhDesenhoCustom(Reacao r) {
          (reacaoEhComando(r) && r != REACAO_OLA && r != REACAO_TCHAU);
 }
 
-// Repertorio de reacoes ESPONTANEAS do idle (vida propria). A piscadela aparece 2x
-// pra ser a mais comum (sutil); coracao/ideia sao os "mimos" mais raros.
+// Repertorio de reacoes ESPONTANEAS do idle (vida propria). A tabela e uma urna com
+// REPETICAO: quantas vezes uma reacao aparece aqui e o peso dela no sorteio. A ideia e
+// que o robo pareca ter tiques (a piscadinha, discreta, o tempo todo) e mimos raros
+// (coracao/ideia), que valem justamente por serem raros - se um coracao aparecesse a
+// cada 10 segundos ele deixaria de significar qualquer coisa.
+//
+// Pesos: piscadela 4/12 (33%), surpresa/confuso/riso 2/12 (17% cada), amor e ideia
+// 1/12 (8% cada). A versao anterior prometia isso no comentario mas dava peso igual a
+// quase tudo - o coracao saia com a mesma frequencia da piscada.
 static const Reacao ANIM_ESPONTANEAS[] = {
-  REACAO_PISCADELA, REACAO_PISCADELA, REACAO_RISO, REACAO_SURPRESA,
-  REACAO_CONFUSO, REACAO_AMOR, REACAO_IDEIA,
+  REACAO_PISCADELA, REACAO_PISCADELA, REACAO_PISCADELA, REACAO_PISCADELA,
+  REACAO_SURPRESA,  REACAO_SURPRESA,
+  REACAO_CONFUSO,   REACAO_CONFUSO,
+  REACAO_RISO,      REACAO_RISO,
+  REACAO_AMOR,
+  REACAO_IDEIA,
 };
 
 static void agendarProximaAnimEspontanea() {
@@ -1588,9 +1621,20 @@ static void agendarProximaAnimEspontanea() {
 
 // Dispara uma reacao espontanea aleatoria (setando o mesmo estado que o servidor
 // setaria). Chamada pela task quando o robo esta ocioso e o intervalo estourou.
+//
+// NUNCA REPETE A ULTIMA: sorteio uniforme puro produz repeticoes seguidas com
+// frequencia alta demais, e e exatamente isso que denuncia que ha um script rodando -
+// duas surpresas identicas em sequencia matam a ilusao de vida mais rapido do que um
+// repertorio pequeno. Tentamos algumas vezes e desistimos (se todas caiu na mesma,
+// deixa passar - e melhor repetir do que travar).
 static void dispararAnimacaoEspontanea() {
+  static Reacao ultimaEspontanea = REACAO_NENHUMA;
   const int n = sizeof(ANIM_ESPONTANEAS) / sizeof(ANIM_ESPONTANEAS[0]);
-  const Reacao escolhida = ANIM_ESPONTANEAS[random(n)];
+  Reacao escolhida = ANIM_ESPONTANEAS[random(n)];
+  for (int tentativa = 0; tentativa < 4 && escolhida == ultimaEspontanea; tentativa++) {
+    escolhida = ANIM_ESPONTANEAS[random(n)];
+  }
+  ultimaEspontanea = escolhida;
   reacaoAteMs = millis() + duracaoReacao(escolhida);
   reacaoAtiva = escolhida;   // seta por ultimo (prazo ja valido)
 }
@@ -1638,12 +1682,70 @@ static void limparReacao(Reacao r) {
   if (r == REACAO_SURPRESA) roboEyes.setHeight(alturaOlhoPadrao, alturaOlhoPadrao);
 }
 
+// Monta um frame 100% CUSTOM: a tela deixa de ser um rosto e vira um icone (coracoes,
+// estrelas, microfone, pausa, o simbolo da materia...). Fica numa funcao propria - e
+// nao dentro da task - para o laco de animacao continuar legivel e para o gate de FPS
+// que a chama ficar obvio.
+//
+// De proposito NAO chamamos roboEyes.update() aqui: ele limparia a tela e redesenharia
+// os olhos por cima do icone. Quem limpa e publica o frame somos nos.
+//
+// Convencao visual: EMOCAO ocupa os dois olhos (dois desenhos lado a lado); COMANDO e
+// MATERIA desenham UM icone no centro.
+static void desenharFrameCustom(Reacao r, bool pulsoGrande, unsigned long inicioReacaoMs) {
+  roboEyes.display->clearDisplay();
+  const int cx = COGNI_OLED_LARGURA / 2, cy = COGNI_OLED_ALTURA / 2;
+  switch (r) {
+    case REACAO_AMOR: {
+      const int s = pulsoGrande ? 16 : 13;
+      desenharCoracao(41, 30, s);
+      desenharCoracao(87, 30, s);
+      break;
+    }
+    case REACAO_IDEIA: {
+      const int s = pulsoGrande ? 13 : 10;
+      desenharEstrela(41, 30, s);
+      desenharEstrela(87, 30, s);
+      break;
+    }
+    case REACAO_MIC_OFF:
+      desenharMicrofone(cx, cy, false);
+      desenharRisco(cx - 22, cy - 24, cx + 22, cy + 20);
+      break;
+    case REACAO_MIC_ON:
+      desenharMicrofone(cx, cy, pulsoGrande);   // ondas piscando = voltou a captar
+      break;
+    case REACAO_PARAR:
+      desenharPausa(cx + (pulsoGrande ? 2 : -2), cy);   // treme = freada brusca
+      break;
+    case REACAO_RESET:
+      desenharSetaReset(cx, cy, pulsoGrande);   // alterna o vao = parece girar
+      break;
+    case REACAO_CAM_ON:
+      desenharCamera(cx, cy);
+      if (millis() - inicioReacaoMs < 260) desenharFlash(cx, cy, 26, 32);
+      break;
+    case REACAO_CAM_OFF:
+      desenharCamera(cx, cy);
+      desenharRisco(cx - 25, cy - 21, cx + 25, cy + 21);
+      break;
+    default:
+      // Materia do assunto: o desenho e escolhido pelo despachante.
+      if (reacaoEhMateria(r)) desenharMateria(r, cx, cy);
+      break;
+  }
+  roboEyes.display->display();
+}
+
 // Inicializa o I2C remapeado e a tela; liga a RoboEyes. Retorna sem marcar telaOk
 // se a tela nao responder (fiacao/endereco errado) - o robo segue funcionando sem
 // rosto. Desenha um primeiro frame para dar feedback visual ja no boot.
 static void configurarTela() {
   Wire.begin(COGNI_PIN_OLED_SDA, COGNI_PIN_OLED_SCL);
-  Wire.setClock(400000);
+  // NAO chame Wire.setClock() aqui: a Adafruit_SSD1306 reaplica a propria velocidade
+  // (o clkDuring do construtor) a cada transferencia e restaura outra depois, entao
+  // qualquer ajuste nosso neste ponto seria sobrescrito silenciosamente. Quem manda na
+  // velocidade da tela e o COGNI_OLED_I2C_HZ, la na declaracao do display.
   if (!display.begin(SSD1306_SWITCHCAPVCC, COGNI_OLED_ADDR)) {
     telaOk = false;
     logInfo("Tela", "OLED nao encontrada no I2C (verifique fiacao SDA/SCL e o endereco)");
@@ -1668,6 +1770,7 @@ static void tarefaOlho(void* arg) {
   Reacao ultimaReacao = REACAO_NENHUMA;
   unsigned long ultimoRedisparoMs = 0;   // re-arma anim_laugh/confused (duram ~500ms)
   unsigned long ultimoPulsoMs = 0;       // pulsar dos icones custom (coracao/estrela)
+  unsigned long ultimoFrameCustomMs = 0; // gate de FPS do desenho custom (ver abaixo)
   unsigned long inicioReacaoMs = 0;      // quando a reacao atual comecou (flash da camera)
   bool pulsoGrande = false;
   bool seguindoRosto = false;            // se estamos perseguindo o alvo da webcam
@@ -1700,52 +1803,17 @@ static void tarefaOlho(void* arg) {
         if ((long)(reacaoAteMs - limite) > 0) reacaoAteMs = limite;
       }
       if (reacaoEhDesenhoCustom(r)) {
-        // Frame 100% custom: a tela vira icone (coracoes, estrelas, microfone...).
-        // NAO chamamos roboEyes.update() (ele limparia a tela e redesenharia os olhos).
-        // Emocao ocupa os DOIS olhos; comando desenha UM icone central.
-        if (millis() - ultimoPulsoMs > 220) { pulsoGrande = !pulsoGrande; ultimoPulsoMs = millis(); }
-        roboEyes.display->clearDisplay();
-        const int cx = COGNI_OLED_LARGURA / 2, cy = COGNI_OLED_ALTURA / 2;
-        switch (r) {
-          case REACAO_AMOR: {
-            const int s = pulsoGrande ? 16 : 13;
-            desenharCoracao(41, 30, s);
-            desenharCoracao(87, 30, s);
-            break;
-          }
-          case REACAO_IDEIA: {
-            const int s = pulsoGrande ? 13 : 10;
-            desenharEstrela(41, 30, s);
-            desenharEstrela(87, 30, s);
-            break;
-          }
-          case REACAO_MIC_OFF:
-            desenharMicrofone(cx, cy, false);
-            desenharRisco(cx - 22, cy - 24, cx + 22, cy + 20);
-            break;
-          case REACAO_MIC_ON:
-            desenharMicrofone(cx, cy, pulsoGrande);   // ondas piscando = voltou a captar
-            break;
-          case REACAO_PARAR:
-            desenharPausa(cx + (pulsoGrande ? 2 : -2), cy);   // treme = freada brusca
-            break;
-          case REACAO_RESET:
-            desenharSetaReset(cx, cy, pulsoGrande);   // alterna o vao = parece girar
-            break;
-          case REACAO_CAM_ON:
-            desenharCamera(cx, cy);
-            if (millis() - inicioReacaoMs < 260) desenharFlash(cx, cy, 26, 32);
-            break;
-          case REACAO_CAM_OFF:
-            desenharCamera(cx, cy);
-            desenharRisco(cx - 25, cy - 21, cx + 25, cy + 21);
-            break;
-          default:
-            // Materia do assunto: o desenho e escolhido pelo despachante.
-            if (reacaoEhMateria(r)) desenharMateria(r, cx, cy);
-            break;
+        // GATE DE QUADROS: este ramo monta o frame na mao e, ao contrario do
+        // roboEyes.update(), NAO passa pelo teto de FPS da biblioteca. Sem o gate ele
+        // redesenhava a cada volta do laco (5ms = 200Hz) contra um barramento que
+        // entrega ~43 quadros/s - a task ficava presa no I2C sem nenhum ganho visual,
+        // roubando fatia do core 0 a toa. Usamos o MESMO intervalo da RoboEyes, para o
+        // rosto e os icones andarem na mesma cadencia.
+        if (millis() - ultimoFrameCustomMs >= roboEyes.frameInterval) {
+          ultimoFrameCustomMs = millis();
+          if (millis() - ultimoPulsoMs > 220) { pulsoGrande = !pulsoGrande; ultimoPulsoMs = millis(); }
+          desenharFrameCustom(r, pulsoGrande, inicioReacaoMs);
         }
-        roboEyes.display->display();
       } else {
         // Re-arma as animacoes one-shot da lib pra tremer/rir o tempo todo enquanto
         // a reacao vale, em vez de disparar so uma vez.
@@ -1768,7 +1836,7 @@ static void tarefaOlho(void* arg) {
         // Segue o rosto da crianca em todos os outros estados (menos dormindo, que
         // e olho fechado). O idleMode da lib move os olhos sozinho e brigaria com o
         // alvo, entao so um dos dois fica ligado por vez.
-        const bool seguindo = animarOlhar();
+        const bool seguindo = animarOlhar(atual);
         if (seguindo != seguindoRosto) {
           seguindoRosto = seguindo;
           if (seguindo) roboEyes.setIdleMode(OFF, 1, 1);
