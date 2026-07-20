@@ -21,6 +21,10 @@ const ouvintesEstado = new Set()
 let usuarioAtivoRobo = config.ESP_USUARIO_PADRAO
 let micRoboMutado = false
 let roboHabilitado = false
+// A webcam vive no NAVEGADOR; o servidor so sabe do estado dela porque o dashboard
+// avisa (POST /api/esp/camera). Guardamos aqui para poder contar ao robo junto da
+// expressao - ele precisa distinguir "ninguem me olha" de "estou sem camera".
+let cameraLigada = false
 
 // Ultimo estado da conversa (ouvindo/pensando/pesquisando/falando/idle) espelhado
 // para o robo, para os OLHOS na tela OLED reagirem. Alimentado pelo pipeline via
@@ -837,15 +841,24 @@ function reagirResetConversa(usuarioId) {
 // se ela ligou). O dashboard avisa por POST /api/esp/camera, tanto no clique do botao
 // da interface quanto quando o botao FISICO manda ele alternar a camera.
 function reagirCamera(ativa) {
+  cameraLigada = !!ativa
   atividade.emitirReacao(ativa ? 'camera-on' : 'camera-off')
-  return !!ativa
+  // O robo precisa saber que a camera esta no ar, e nao so ver o icone passar: e isso
+  // que permite a ele se sentir IGNORADO (camera ligada + nenhum rosto a vista por um
+  // bom tempo) sem confundir isso com "a camera simplesmente esta desligada".
+  enviarExpressaoParaEsp()
+  return cameraLigada
 }
 
-// Envia ao robo a expressao atual (estado da conversa + mute) para os OLHOS da tela
-// OLED reagirem. Se `ws` for informado, manda so para aquela conexao (ex.: logo apos
-// o robo conectar, para sincronizar o rosto); sem `ws`, faz broadcast para todas.
+// Envia ao robo a expressao atual (estado da conversa + mute + camera) para os OLHOS
+// da tela OLED reagirem. Se `ws` for informado, manda so para aquela conexao (ex.: logo
+// apos o robo conectar, para sincronizar o rosto); sem `ws`, faz broadcast para todas.
 function enviarExpressaoParaEsp(ws = null) {
-  const payload = { estado: ultimoEstadoConversa, mutado: micRoboMutado }
+  const payload = {
+    estado: ultimoEstadoConversa,
+    mutado: micRoboMutado,
+    camera: cameraLigada,
+  }
   if (ws) return enviarComandoParaConexao(ws, 'expressao', payload)
   return enviarComando('expressao', payload)
 }

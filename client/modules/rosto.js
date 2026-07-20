@@ -124,6 +124,12 @@ export async function iniciarRastreio(video, callback) {
     aoDetectar?.({
       x: (caixa.originX + caixa.width / 2) / larguraVideo,
       y: (caixa.originY + caixa.height / 2) / alturaVideo,
+      // Largura do rosto como fração do quadro — nossa única medida de DISTÂNCIA.
+      // Rosto grande = criança perto. O robô usa isso para ficar vesgo quando ela
+      // chega colada na câmera, como alguém tentando focar algo no próprio nariz.
+      // Continua não sendo dado biométrico: é o mesmo tipo de informação que o
+      // tamanho de uma janela na tela.
+      t: caixa.width / larguraVideo,
     })
   }, INTERVALO_MS)
 

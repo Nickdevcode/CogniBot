@@ -764,8 +764,11 @@ async function processarStream(resposta, inicio) {
 async function ligarRastreioDeRosto() {
   if (!estaEmModoRobo()) return
   await iniciarRastreio(elementos.cameraVideo, (pos) => {
-    if (!pos) return   // rosto fora de vista: o robô volta sozinho ao normal
-    api.enviarOlhar(pos.x, pos.y)
+    // Rosto fora de vista: paramos de enviar e o robô volta sozinho ao normal quando
+    // a última posição envelhece. É esse mesmo silêncio que, se durar, faz ele se
+    // sentir ignorado e sair procurando a criança.
+    if (!pos) return
+    api.enviarOlhar(pos.x, pos.y, pos.t)
   })
 }
 

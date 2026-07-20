@@ -148,7 +148,15 @@ router.post('/olhar', (req, res) => {
   // Trava em 0..1: um valor fora da faixa (bug no cliente, video com dimensao zero)
   // viraria uma posicao absurda de olho no firmware.
   const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
-  enviarComando('olhar', { x: clamp(x), y: clamp(y) })
+  // `t` = largura do rosto como fracao do quadro, a nossa medida de DISTANCIA (rosto
+  // grande = crianca perto). Opcional de proposito: um cliente antigo que so mande
+  // x/y continua funcionando, e o firmware trata 0 como "nao sei a distancia".
+  const t = Number(req.body?.t)
+  enviarComando('olhar', {
+    x: clamp(x),
+    y: clamp(y),
+    t: Number.isFinite(t) ? clamp(t) : 0,
+  })
   res.status(204).end()
 })
 

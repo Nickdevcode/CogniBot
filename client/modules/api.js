@@ -120,11 +120,11 @@ export async function interromperRobo(comFeedback = true) {
 // ~10Hz, então é deliberadamente leve: sem await, sem tratamento de resposta, e
 // `keepalive` pra requisição não morrer se a página estiver ocupada. Perder uma
 // amostra não tem consequência — a próxima chega em 100ms.
-export function enviarOlhar(x, y) {
+export function enviarOlhar(x, y, t) {
   return fetch(`${API_URL}/esp/olhar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ x, y }),
+    body: JSON.stringify({ x, y, t }),
     keepalive: true,
   }).catch(() => {})
 }

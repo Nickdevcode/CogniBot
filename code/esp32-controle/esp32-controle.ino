@@ -229,6 +229,32 @@ static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao
 static unsigned long proximaAnimEspontaneaMs = 0;
 
 // ---------------------------------------------------------------------
+// VIVACIDADE: os micro-movimentos que separam "rosto vivo" de "imagem parada"
+// ---------------------------------------------------------------------
+// Um olho humano NUNCA fica imovel: mesmo fixando um ponto ele salta em pequenos
+// movimentos involuntarios (sacadas) varias vezes por segundo, e o corpo respira. Sem
+// isso, um rosto tecnicamente correto ainda "cheira" a imagem congelada - e essa e a
+// diferenca mais barata que existe entre um desenho e um bicho.
+//
+// Amplitudes propositalmente MINUSCULAS (1-2px). O efeito tem que ser quase
+// subliminar: se der pra ver o olho tremendo, passou do ponto e vira tique nervoso.
+#ifndef COGNI_SACADA_AMPLITUDE
+#define COGNI_SACADA_AMPLITUDE 2
+#endif
+#ifndef COGNI_SACADA_MIN_MS
+#define COGNI_SACADA_MIN_MS 280UL
+#endif
+#ifndef COGNI_SACADA_MAX_MS
+#define COGNI_SACADA_MAX_MS 900UL
+#endif
+#ifndef COGNI_RESPIRACAO_AMPLITUDE
+#define COGNI_RESPIRACAO_AMPLITUDE 2
+#endif
+#ifndef COGNI_RESPIRACAO_PERIODO_MS
+#define COGNI_RESPIRACAO_PERIODO_MS 4200UL
+#endif
+
+// ---------------------------------------------------------------------
 // ENVELOPE DA FALA: os olhos pulsam no ritmo da voz do robo
 // ---------------------------------------------------------------------
 // A task de audio mede a amplitude de cada lote que manda pro I2S e a task da tela
@@ -285,12 +311,34 @@ static volatile uint16_t envelopeCauda = 0;
 // bits, dispensando secao critica entre o callback do WS (core 1) e a tela (core 0).
 static volatile int16_t alvoOlharX = 500;   // 500 = centro
 static volatile int16_t alvoOlharY = 500;
+// Largura do rosto no quadro, tambem em milesimos: a nossa medida de DISTANCIA. Rosto
+// grande = crianca perto. 0 = o painel nao informou (versao antiga) ou nao ha rosto.
+static volatile int16_t alvoOlharTam = 0;
 static volatile unsigned long ultimoOlharMs = 0;
+// A webcam do painel esta ligada? Informado pelo servidor junto da expressao. Usado
+// para o robo so se sentir ignorado quando de fato PODERIA estar vendo alguem.
+static volatile bool cameraLigadaRobo = false;
 // Sem posicao nova por este tempo, o robo volta ao comportamento normal (idle mode).
 // Cobre com folga o intervalo de ~100ms do navegador, entao um engasgo de rede nao
 // faz o olhar "soltar" no meio de uma interacao.
 #ifndef COGNI_OLHAR_VALIDADE_MS
 #define COGNI_OLHAR_VALIDADE_MS 1200UL
+#endif
+
+// OLHOS VESGOS DE PERTO: quando a crianca cola o rosto na camera, o robo cruza os
+// olhos - como alguem tentando focar algo no proprio nariz. O limiar e o tamanho do
+// rosto a partir do qual o efeito comeca; o espaco minimo e o quanto os olhos chegam
+// a se aproximar (a RoboEyes aceita espacamento NEGATIVO, que e o que de fato cruza).
+#ifndef COGNI_VESGO_LIMIAR
+#define COGNI_VESGO_LIMIAR 420
+#endif
+#ifndef COGNI_VESGO_ESPACO_MIN
+#define COGNI_VESGO_ESPACO_MIN -6
+#endif
+// SENTIR-SE IGNORADO: com a camera ligada, depois de ter visto um rosto, se ninguem
+// aparecer por este tempo o robo procura em volta e fica tristinho.
+#ifndef COGNI_IGNORADO_MS
+#define COGNI_IGNORADO_MS 12000UL
 #endif
 
 // Descarta o envelope pendente. Obrigatorio sempre que o audio for jogado fora
@@ -1104,6 +1152,10 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
         const bool mutado = doc["payload"]["mutado"] | false;
         if (mutado != micMutadoRobo) marcarAtividade();
         micMutadoRobo = mutado;
+        // Estado da webcam do painel. Sem ele o robo nao consegue diferenciar "estou
+        // sendo ignorado" (camera ligada e ninguem aparece) de "estou sem camera" - e
+        // ficaria se sentindo abandonado toda vez que a webcam estivesse desligada.
+        cameraLigadaRobo = doc["payload"]["camera"] | false;
         if      (strcmp(estado, "ouvindo") == 0)     estadoConversa = CONV_OUVINDO;
         else if (strcmp(estado, "pensando") == 0)    estadoConversa = CONV_PENSANDO;
         else if (strcmp(estado, "pesquisando") == 0) estadoConversa = CONV_PESQUISANDO;
@@ -1117,8 +1169,13 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
         // robo nao deveria ficar acordado a noite toda so porque tem gente na sala.
         const float x = doc["payload"]["x"] | 0.5f;
         const float y = doc["payload"]["y"] | 0.5f;
+        // `t` = largura do rosto no quadro, nossa unica medida de DISTANCIA. Zero (ou
+        // ausente, se o painel for de uma versao anterior) significa "nao sei", e ai o
+        // robo simplesmente nao fica vesgo.
+        const float tam = doc["payload"]["t"] | 0.0f;
         alvoOlharX = (int16_t) (constrain(x, 0.0f, 1.0f) * 1000.0f);
         alvoOlharY = (int16_t) (constrain(y, 0.0f, 1.0f) * 1000.0f);
+        alvoOlharTam = (int16_t) (constrain(tam, 0.0f, 1.0f) * 1000.0f);
         ultimoOlharMs = millis();
 
       } else if (strcmp(t, "reacao") == 0) {
@@ -1362,7 +1419,13 @@ static bool animarFala() {
 // a crianca anda pra direita dela, o rosto vai pra ESQUERDA na imagem. Sem inverter,
 // o robo olharia sempre pro lado oposto de onde ela esta.
 static bool animarOlhar(Rosto rosto) {
-  if (millis() - ultimoOlharMs > COGNI_OLHAR_VALIDADE_MS) return false;
+  if (millis() - ultimoOlharMs > COGNI_OLHAR_VALIDADE_MS) {
+    // Sem alvo fresco: desfaz um eventual "vesgo" para os olhos nao ficarem cruzados
+    // depois que a crianca saiu de vista. Escrevemos so o ...Next e deixamos a lib
+    // caminhar ate ele, entao o descruzar sai suave de graca.
+    roboEyes.spaceBetweenNext = roboEyes.spaceBetweenDefault;
+    return false;
+  }
 
   const int alvoX = (1000 - alvoOlharX) * roboEyes.getScreenConstraint_X() / 1000;
   int alvoY = alvoOlharY * roboEyes.getScreenConstraint_Y() / 1000;
@@ -1377,6 +1440,20 @@ static bool animarOlhar(Rosto rosto) {
   // detector entrega a posicao aos degraus de 100ms e o olho ficaria "tremendo".
   roboEyes.eyeLxNext += (alvoX - roboEyes.eyeLxNext) / 4;
   roboEyes.eyeLyNext += (alvoY - roboEyes.eyeLyNext) / 4;
+
+  // VESGO DE PERTO: passando do limiar de proximidade, os olhos vao se aproximando ate
+  // cruzar. E proporcional (nao um liga/desliga) para nao "estalar" quando a crianca
+  // fica oscilando em volta do limiar - ela chega perto e ve os olhos cruzarem AO VIVO,
+  // que e onde esta a graca. Espacamento negativo e suportado pela lib de proposito.
+  const int tam = alvoOlharTam;
+  if (tam > COGNI_VESGO_LIMIAR) {
+    const int faixa = 1000 - COGNI_VESGO_LIMIAR;
+    const int excesso = tam - COGNI_VESGO_LIMIAR;
+    const int padrao = roboEyes.spaceBetweenDefault;
+    roboEyes.spaceBetweenNext = padrao - ((padrao - COGNI_VESGO_ESPACO_MIN) * excesso) / faixa;
+  } else {
+    roboEyes.spaceBetweenNext = roboEyes.spaceBetweenDefault;
+  }
   return true;
 }
 
@@ -1397,6 +1474,48 @@ static void animarVarredura() {
   // isto ele herdaria o Y do rosto anterior - vindo de PENSANDO (que olha pra cima),
   // a varredura acontecia colada no topo da tela.
   roboEyes.eyeLyNext = roboEyes.getScreenConstraint_Y() / 2;
+}
+
+// Micro-movimentos involuntarios: sacadas (saltinhos aleatorios) + respiracao (balanco
+// vertical lento e continuo). Some um deslocamento de poucos pixels por cima de onde
+// quer que os olhos ja estejam, sem tomar o controle de ninguem.
+//
+// POR QUE APLICAMOS A DIFERENCA, E NAO O OFFSET: eyeLxNext/eyeLyNext sao ALVOS
+// PERSISTENTES - a lib caminha ate eles e os mantem entre um quadro e outro. Somar o
+// offset a cada quadro faria ele se ACUMULAR (2px por quadro, 50 quadros por segundo)
+// e em pouco mais de um segundo os olhos estariam fora da tela. Entao guardamos quanto
+// ja foi aplicado e mexemos so no que mudou; o efeito liquido e o offset atual, uma
+// vez so. Quando `ativo` e falso, o alvo vai a zero e o deslocamento se desfaz sozinho
+// - sem precisar de nenhuma limpeza especial em quem chama.
+//
+// Nao mexemos na ALTURA de proposito: altura e o campo que o autoblinker e o envelope
+// da fala disputam, e escrever ali todo quadro engoliria as piscadas em silencio (a
+// mesma armadilha ja documentada em aplicarRosto).
+static void animarVivacidade(bool ativo) {
+  static int aplicadoX = 0, aplicadoY = 0;      // quanto do offset ja esta na posicao
+  static int sacadaX = 0, sacadaY = 0;
+  static unsigned long proximaSacadaMs = 0;
+
+  int alvoX = 0, alvoY = 0;
+  if (ativo) {
+    const unsigned long agora = millis();
+    if ((long) (agora - proximaSacadaMs) >= 0) {
+      sacadaX = random(-COGNI_SACADA_AMPLITUDE, COGNI_SACADA_AMPLITUDE + 1);
+      sacadaY = random(-COGNI_SACADA_AMPLITUDE, COGNI_SACADA_AMPLITUDE + 1);
+      proximaSacadaMs = agora + random(COGNI_SACADA_MIN_MS, COGNI_SACADA_MAX_MS);
+    }
+    // Respiracao: seno completo no periodo configurado, entao ele sobe e desce de
+    // volta sem nenhum salto na virada do ciclo.
+    const float fase = (millis() % COGNI_RESPIRACAO_PERIODO_MS) / (float) COGNI_RESPIRACAO_PERIODO_MS;
+    const int respiro = (int) (COGNI_RESPIRACAO_AMPLITUDE * sinf(fase * 2.0f * PI));
+    alvoX = sacadaX;
+    alvoY = sacadaY + respiro;
+  }
+
+  roboEyes.eyeLxNext += (alvoX - aplicadoX);
+  roboEyes.eyeLyNext += (alvoY - aplicadoY);
+  aplicadoX = alvoX;
+  aplicadoY = alvoY;
 }
 
 // ---------------------------------------------------------------------
@@ -1774,6 +1893,8 @@ static void tarefaOlho(void* arg) {
   unsigned long inicioReacaoMs = 0;      // quando a reacao atual comecou (flash da camera)
   bool pulsoGrande = false;
   bool seguindoRosto = false;            // se estamos perseguindo o alvo da webcam
+  bool jaViuAlguem = false;              // ja houve um rosto em algum momento?
+  bool sentiuFalta = false;              // ja reagiu a esta ausencia? (evita looping)
 
   for (;;) {
     Reacao r = reacaoAtiva;
@@ -1827,7 +1948,20 @@ static void tarefaOlho(void* arg) {
     } else {
       ultimaReacao = REACAO_NENHUMA;
       const Rosto atual = calcularRosto();
-      if (atual != ultimoRosto) { aplicarRosto(atual); ultimoRosto = atual; }
+      if (atual != ultimoRosto) {
+        aplicarRosto(atual);
+        // PISCADA COMO PONTUACAO: uma piscada curta na troca de estado marca a
+        // mudanca de pensamento, do mesmo jeito que um corte de cena no cinema. Sem
+        // ela a transicao entre "ouvindo" e "pensando" e so um deslize dos olhos e
+        // passa despercebida; com ela o robo parece ter TOMADO uma decisao.
+        // Excecoes: DORMINDO (olho ja fechado, piscar nao faz sentido) e FALANDO (o
+        // envelope reescreve a altura todo quadro e engoliria a piscada em silencio -
+        // a fala tem a propria piscada, dentro de animarFala).
+        if (ultimoRosto != (Rosto) 255 && atual != ROSTO_DORMINDO && atual != ROSTO_FALANDO) {
+          roboEyes.blink();
+        }
+        ultimoRosto = atual;
+      }
       // Animacoes CONTINUAS do rosto atual (rodam a cada frame, ao contrario do
       // aplicarRosto, que so roda na transicao).
       if (atual == ROSTO_PESQUISANDO) {
@@ -1846,6 +1980,13 @@ static void tarefaOlho(void* arg) {
       // Envelope da fala: NAO usa `atual == ROSTO_FALANDO` como gate. O rosto volta
       // pra idle assim que o servidor manda o fim, mas ainda ha ate ~340ms de audio
       // no DMA - quem manda parar e o proprio envelope secar.
+      // Micro-movimentos por cima de tudo o que ja foi decidido acima. Fora em dois
+      // casos: DORMINDO (olho fechado, nao ha o que tremer) e PESQUISANDO, onde a
+      // varredura escreve a posicao de forma ABSOLUTA a cada quadro e atrapalharia a
+      // contabilidade de "quanto ja apliquei" - e, de qualquer forma, ali ja ha
+      // movimento de sobra.
+      animarVivacidade(atual != ROSTO_DORMINDO && atual != ROSTO_PESQUISANDO);
+
       const bool pulsando = animarFala();
       if (pulsando && atual != ROSTO_FALANDO) {
         // Sobrou fala tocando fora do rosto FALANDO: mantem os olhos abertos pra
@@ -1853,6 +1994,27 @@ static void tarefaOlho(void* arg) {
         roboEyes.open();
       }
       roboEyes.update();
+
+      // SENTIR-SE IGNORADO: a camera esta ligada, o robo JA viu um rosto em algum
+      // momento, e faz muito tempo que ninguem aparece. Ele reage uma vez - fica
+      // tristinho - e so volta a reagir depois de ver alguem de novo. Sem esse
+      // "so uma vez" ele ficaria em looping de tristeza com a sala vazia, o que e
+      // deprimente em vez de fofo.
+      //
+      // Repare que nao precisamos de nenhuma mensagem nova do servidor: o painel
+      // simplesmente PARA de mandar posicao quando nao ha rosto, e o silencio e a
+      // informacao. Por isso a checagem da camera importa - sem ela, camera desligada
+      // (que tambem e silencio) seria confundida com abandono.
+      if (atual == ROSTO_IDLE && cameraLigadaRobo && jaViuAlguem &&
+          !sentiuFalta && (millis() - ultimoOlharMs) > COGNI_IGNORADO_MS) {
+        sentiuFalta = true;
+        reacaoAteMs = millis() + duracaoReacao(REACAO_TRISTE);
+        reacaoAtiva = REACAO_TRISTE;   // por ultimo: prazo ja valido
+      }
+      if ((millis() - ultimoOlharMs) <= COGNI_OLHAR_VALIDADE_MS) {
+        jaViuAlguem = true;
+        sentiuFalta = false;   // rearma: da pra sentir falta de novo na proxima
+      }
 
       // VIDA PROPRIA: so quando OCIOSO (idle) e sem ninguem falando, dispara reacoes
       // espontaneas de tempos em tempos. Fora do idle, adia o proximo disparo pra nao
