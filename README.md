@@ -106,7 +106,7 @@ HTML + CSS + JavaScript puro (sem framework pesado) — **ultraleve e rápido**.
 | 🧠 **Placa** | ESP32 DevKit V1 | O "computador" do robô |
 | 🎤 **Microfone** | INMP441 (I2S) | Ouve a criança |
 | 🔊 **Som** | MAX98357A + alto-falante | A voz da Cogni sai por aqui |
-| 📸 **Câmera** *(fase futura)* | ESP32-CAM | Visão do próprio robô |
+| 📸 **Visão** | Webcam do dispositivo | A Cogni enxerga pela câmera do PC/celular onde o painel está aberto |
 
 > 🔊 **Curiosidade técnica:** a voz vai pro robô como **áudio cru (PCM)**, não como MP3. Por quê? Decodificar MP3 exigiria uma memória extra (PSRAM) que o ESP32 DevKit não tem. Então o servidor manda o som "pronto pra tocar" e o robô só reproduz. Simples e leve. 👌
 
@@ -143,7 +143,7 @@ Cogni/
 │
 └── 🦾 code/                  ← o firmware do robô (código que vai no ESP32)
     ├── esp32-controle/       ← ⭐ o principal: microfone + alto-falante (esp32-controle.ino)
-    ├── esp32-cam/            ← a câmera (fase futura)
+    ├── esp32-cam/            ← sketch da ESP32-CAM, fora do projeto hoje (ver apêndice)
     └── teste-conexao/        ← comece por aqui pra testar Wi-Fi + conexão
 ```
 
@@ -206,6 +206,14 @@ npm install
 ```
 
 Isso baixa tudo que o servidor precisa (uma vez só). ⏳
+
+Em seguida, baixe a biblioteca que faz **os olhos do robô seguirem a criança** (detector de rosto do MediaPipe, ~11 MB):
+
+```bash
+npm run vendor
+```
+
+> 🤔 **Por que num comando separado?** São 11 MB de WebAssembly compilado — peso demais pra deixar no Git, e não é código nosso. O comando baixa tudo pra `client/vendor/` (que está no `.gitignore`) e a partir daí **funciona offline**, sem depender de CDN na hora de apresentar. Se você pular este passo, tudo continua funcionando — só o rastreio de rosto fica desligado. 👍
 
 ### 4️⃣ Ligar o servidor
 
@@ -374,6 +382,8 @@ Se você montou o robô com ESP32, é aqui que ele ganha vida. 🤖
    - `COGNI_ESP_TOKEN` → **exatamente o mesmo** valor do `ESP_TOKEN` que você pôs no `.env`.
 
 4. Na Arduino IDE: `Tools → Board → DOIT ESP32 DEVKIT V1`, escolha a porta `COMx`, abra `esp32-controle.ino` (dentro de `code/esp32-controle/`) e clique em **Upload** ⬆️.
+
+   > ⚠️ **Se der "sketch too big":** vá em `Tools → Partition Scheme` e escolha **Huge APP (3MB No OTA/1MB SPIFFS)**. O esquema padrão reserva metade do flash pra atualização pela rede (OTA), coisa que este projeto não usa — ele grava por USB. Trocando, o uso cai de ~90% pra ~38% e sobra espaço de sobra pra novas animações. É uma configuração **da IDE**, não do repositório: se trocar de computador, precisa marcar de novo.
 5. Abra o **Monitor Serial** (115200 baud) pra ver o robô se conectando.
 
 > 💡 **Dica:** comece testando com `code/teste-conexao/` — é um sketch mínimo que só valida Wi-Fi + conexão + token (copie o `config.example.h` dele pra `config.h` do mesmo jeito). Se ele conectar, o resto vai funcionar.
@@ -381,6 +391,24 @@ Se você montou o robô com ESP32, é aqui que ele ganha vida. 🤖
 ### 🎛️ Modo "Controlar robô"
 
 Quando o robô está conectado, aparece na interface o botão **"Controlar robô"**. Ligando ele, **a tela do seu PC vira o painel de controle do robô**: o microfone e o alto-falante passam a ser os **do robô**, e você comanda tudo pela tela — escolhe o perfil da criança, muta, vê as legendas ao vivo e o estado (ouvindo / pensando / falando). E tudo isso **sem regravar o firmware**. 🪄
+
+### 👀 O rosto do robô (tela OLED)
+
+O robô tem **olhos animados** numa telinha OLED, e eles não ficam parados esperando comando. O que acontece ali:
+
+| Situação | O que os olhos fazem |
+| --- | --- |
+| 😴 **Desconectado ou 2 min parado** | Dormem. Qualquer conversa, botão ou reconexão acorda na hora |
+| 👂 **Ouvindo** | Atentos, olhando pra frente |
+| 🤔 **Pensando** | Olham pra cima, pensativos |
+| 🔎 **Pesquisando na web** | Varredura horizontal contínua, tipo scanner |
+| 🗣️ **Falando** | **Pulsam no ritmo da própria voz** — a altura do olho acompanha a amplitude do áudio que está tocando naquele instante |
+| 💜 **Reagindo ao papo** | Corações num elogio, risada numa piada, estrelinhas ao aprender algo novo |
+| 🎛️ **Comando do painel** | Ícone central: microfone riscado, pausa, seta de recomeçar, câmera com flash… |
+| 📐 **Assunto da conversa** | O ícone da matéria aparece antes da resposta (soma, erlenmeyer, livro, ampulheta, globo, balões de fala) |
+| 🙂 **Com a câmera ligada** | **Seguem você pela sala** — o rosto é detectado no navegador e só a posição (dois números) vai pro robô |
+
+> 🔒 **Sobre a câmera e privacidade:** a detecção de rosto acontece **inteiramente no seu dispositivo**. O que trafega pro servidor é só a posição normalizada do rosto — nenhuma imagem, nenhum dado biométrico. É, na prática, o equivalente a mover o mouse. 🙏
 
 ### 🔊 Ouvindo o robô no PC (página de debug)
 
@@ -507,6 +535,25 @@ cd server && npm outdated
 # Auditoria de segurança das dependências
 cd server && npm audit
 ```
+
+---
+
+## 🔌 Apêndice: religando a ESP32-CAM
+
+A câmera de um segundo ESP32 **saiu do projeto** — a visão da Cogni é a webcam do dispositivo onde o painel está aberto. O sketch continua em `code/esp32-cam/` (não é compilado por nada), mas a integração com o servidor foi removida. Se um dia ela voltar, é isto que precisa ser recriado:
+
+| Camada | O que reconstruir |
+| --- | --- |
+| 🔧 `server/config.js` | `ESP_MAX_FRAME_BYTES: 200 * 1024` (limite do frame JPEG) |
+| 🔌 `server/modules/esp.js` | Um `WebSocketServer` extra (`maxPayload: ESP_MAX_FRAME_BYTES + 4096`), o `Map` de conexões, um store `{ buffer, recebidoEm }` alimentado pelas mensagens **binárias**, a rota de upgrade `/ws/cam`, o `iniciarPing` dele, e getters `obterUltimoFrame()` / `obterUltimoFrameBase64()` com TTL de ~5s |
+| 📊 `obterEstado()` | Voltar a chave `camera: { conectados, ultimoFrameMs }` — a UI lê daí |
+| 🚪 `server/routes/esp.js` | `GET /camera/snapshot` devolvendo o JPEG com `Cache-Control: no-store` |
+| 🖥️ `client/` | Polling do snapshot (~4s) no painel, a linha de status "ESP-CAM" e o `<img>` do último frame |
+| 🧹 Encerramento | Incluir o novo `wss` no laço de `shutdown()` em `server/index.js`, senão o processo não sai limpo |
+
+**O que já existe e NÃO precisa ser tocado:** `modules/vision.js` (valida/limpa frame), `modules/webcam.js` (store da webcam do PC) e o botão de câmera do robô — apesar do nome, ele liga a webcam do navegador, não a ESP-CAM.
+
+> 💡 Decisão registrada: manter as duas fontes de imagem isoladas, cada uma com seu TTL. O frame da webcam vale 10s (é capturado no início da fala e consumido segundos depois, pós-STT); o da ESP-CAM valia 5s por ser um stream contínuo.
 
 ---
 
