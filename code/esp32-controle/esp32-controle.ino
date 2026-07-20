@@ -246,6 +246,35 @@ static volatile unsigned long reacaoAteMs = 0;   // millis() ate quando a reacao
 static unsigned long proximaAnimEspontaneaMs = 0;
 
 // ---------------------------------------------------------------------
+// MICRO-HISTORIAS: pequenas cenas em vez de gestos avulsos
+// ---------------------------------------------------------------------
+// As reacoes espontaneas resolvem "o robo se mexe sozinho", mas todas duram 2s e sao
+// gestos isolados - depois de um tempo a crianca ja viu todos. Uma HISTORIA e outra
+// coisa: tem comeco, meio e fim, e por isso ela e LEMBRADA ("ele fica tonto!") de um
+// jeito que uma piscada nunca vai ser. E o mesmo motivo pelo qual a rotina previsivel
+// da Loona ("onde ela gosta de ficar parada") aparece nas resenhas e as animacoes
+// soltas nao.
+//
+// Elas so acontecem no repouso e sao abandonadas na hora se alguem falar com o robo.
+enum Historia { HIST_NENHUMA, HIST_MOSCA, HIST_TONTURA, HIST_COCHILO };
+static Historia historiaAtiva = HIST_NENHUMA;
+static unsigned long historiaInicioMs = 0;
+static unsigned long proximaHistoriaMs = 0;
+
+#ifndef COGNI_HISTORIA_MIN_MS
+#define COGNI_HISTORIA_MIN_MS 25000UL
+#endif
+#ifndef COGNI_HISTORIA_MAX_MS
+#define COGNI_HISTORIA_MAX_MS 55000UL
+#endif
+
+// Duracao de cada cena. A mosca e a mais longa porque e a que conta uma historia de
+// verdade; a tontura e curta pra nao enjoar (literalmente).
+#define COGNI_HIST_MOSCA_MS    5200UL
+#define COGNI_HIST_TONTURA_MS  3000UL
+#define COGNI_HIST_COCHILO_MS  4600UL
+
+// ---------------------------------------------------------------------
 // MOTOR DE EMOCAO: humor que persiste e decai, em vez de reacoes avulsas
 // ---------------------------------------------------------------------
 // Ate aqui uma reacao era um evento sem memoria: aparecia o coracao, passavam 2,2s, e
@@ -386,6 +415,9 @@ static volatile unsigned long ultimoOlharMs = 0;
 // A webcam do painel esta ligada? Informado pelo servidor junto da expressao. Usado
 // para o robo so se sentir ignorado quando de fato PODERIA estar vendo alguem.
 static volatile bool cameraLigadaRobo = false;
+// E noite/madrugada? Informado pelo servidor junto da expressao (o ESP nao tem relogio
+// de parede). A noite o robo cochila mais cedo e tende ao rosto sonolento no repouso.
+static volatile bool ehNoite = false;
 // Sem posicao nova por este tempo, o robo volta ao comportamento normal (idle mode).
 // Cobre com folga o intervalo de ~100ms do navegador, entao um engasgo de rede nao
 // faz o olhar "soltar" no meio de uma interacao.
@@ -1224,6 +1256,10 @@ static void onWsEvent(WStype_t tipo, uint8_t* payload, size_t length) {
         // sendo ignorado" (camera ligada e ninguem aparece) de "estou sem camera" - e
         // ficaria se sentindo abandonado toda vez que a webcam estivesse desligada.
         cameraLigadaRobo = doc["payload"]["camera"] | false;
+        // Periodo do dia (o ESP nao tem relogio de parede - quem sabe a hora e o
+        // servidor). A noite o robo fica naturalmente mais molenga.
+        const char* periodo = doc["payload"]["periodo"] | "";
+        ehNoite = (strcmp(periodo, "noite") == 0 || strcmp(periodo, "madrugada") == 0);
         if      (strcmp(estado, "ouvindo") == 0)     estadoConversa = CONV_OUVINDO;
         else if (strcmp(estado, "pensando") == 0)    estadoConversa = CONV_PENSANDO;
         else if (strcmp(estado, "pesquisando") == 0) estadoConversa = CONV_PESQUISANDO;
@@ -1346,7 +1382,11 @@ static Rosto calcularRosto() {
     return ativo;
   }
 
-  if (millis() - ultimaAtividadeMs >= COGNI_INATIVIDADE_SONO_MS) return ROSTO_DORMINDO;
+  // A noite ele cochila na METADE do tempo. E o mesmo robo de sempre, so que com sono -
+  // do jeito que qualquer um fica.
+  const unsigned long limiteSono = ehNoite ? (COGNI_INATIVIDADE_SONO_MS / 2)
+                                           : COGNI_INATIVIDADE_SONO_MS;
+  if (millis() - ultimaAtividadeMs >= limiteSono) return ROSTO_DORMINDO;
   return ROSTO_IDLE;
 }
 
@@ -1428,6 +1468,9 @@ static void aplicarHumorNoRosto(Rosto rosto) {
   if (rosto == ROSTO_IDLE || rosto == ROSTO_OUVINDO) {
     if (v >= COGNI_EMOCAO_LIMIAR)       roboEyes.setMood(HAPPY);
     else if (v <= -COGNI_EMOCAO_LIMIAR) roboEyes.setMood(TIRED);
+    // A noite, o rosto neutro vira sonolento. So o neutro: se a crianca acabou de
+    // elogiar, o robo continua feliz - ninguem fica com sono no meio de um elogio.
+    else if (ehNoite && rosto == ROSTO_IDLE) roboEyes.setMood(TIRED);
     else                                 roboEyes.setMood(DEFAULT);
 
     // Redondo quando feliz (8 -> 12), anguloso quando pra baixo (8 -> 5).
@@ -1646,6 +1689,98 @@ static void animarVarredura() {
   // isto ele herdaria o Y do rosto anterior - vindo de PENSANDO (que olha pra cima),
   // a varredura acontecia colada no topo da tela.
   roboEyes.eyeLyNext = roboEyes.getScreenConstraint_Y() / 2;
+}
+
+static void agendarProximaHistoria() {
+  proximaHistoriaMs = millis() + random(COGNI_HISTORIA_MIN_MS, COGNI_HISTORIA_MAX_MS);
+}
+
+// Encerra a cena em curso e devolve o rosto ao normal. Idempotente de proposito: e
+// chamada tanto no fim natural quanto na interrupcao (alguem falou com o robo).
+static void encerrarHistoria() {
+  if (historiaAtiva == HIST_NENHUMA) return;
+  if (historiaAtiva == HIST_COCHILO) {
+    // O cochilo mexeu na altura e desligou o autoblinker; devolve os dois.
+    roboEyes.eyeLheightNext = roboEyes.eyeRheightNext = roboEyes.eyeLheightDefault;
+    roboEyes.setAutoblinker(ON, 3, 2);
+  }
+  historiaAtiva = HIST_NENHUMA;
+  agendarProximaHistoria();
+}
+
+// Roda a cena atual. Retorna true enquanto ela estiver no comando dos olhos - nesse
+// caso quem chama nao deve deixar o olhar/idle mode mexerem na posicao.
+//
+// Escreve eyeLxNext/eyeLyNext de forma ABSOLUTA (a lib caminha ate o alvo, o que ja da
+// a suavidade). So o olho esquerdo: a RoboEyes recalcula o direito como um par rigido.
+static bool animarHistoria() {
+  if (historiaAtiva == HIST_NENHUMA) return false;
+
+  const unsigned long decorrido = millis() - historiaInicioMs;
+  const int faixaX = roboEyes.getScreenConstraint_X();
+  const int faixaY = roboEyes.getScreenConstraint_Y();
+  const float t = decorrido / 1000.0f;
+
+  switch (historiaAtiva) {
+    case HIST_MOSCA: {
+      if (decorrido >= COGNI_HIST_MOSCA_MS) { roboEyes.blink(); encerrarHistoria(); return false; }
+      // Duas senoides de frequencias NAO multiplas (2,3 e 3,7): o caminho nunca fecha
+      // no mesmo ciclo, entao o percurso parece erratico e vivo em vez de um circulo
+      // repetido. E o truque classico de Lissajous - de graca e convincente.
+      const float fx = (sinf(t * 2.3f) + 1.0f) / 2.0f;
+      const float fy = (sinf(t * 3.7f) + 1.0f) / 2.0f;
+      roboEyes.eyeLxNext = (int) (fx * faixaX);
+      roboEyes.eyeLyNext = (int) (fy * faixaY);
+      return true;
+    }
+    case HIST_TONTURA: {
+      if (decorrido >= COGNI_HIST_TONTURA_MS) { roboEyes.blink(); encerrarHistoria(); return false; }
+      // Giro com raio decrescente: ele roda e vai "assentando" no centro, que e como
+      // uma tontura passa de verdade. Sem o decaimento pareceria so um rodar infinito.
+      const float progresso = (float) decorrido / (float) COGNI_HIST_TONTURA_MS;
+      const float ang = t * 7.0f;
+      const float raio = (1.0f - progresso) / 2.0f;
+      roboEyes.eyeLxNext = (int) ((0.5f + raio * cosf(ang)) * faixaX);
+      roboEyes.eyeLyNext = (int) ((0.5f + raio * sinf(ang)) * faixaY);
+      return true;
+    }
+    case HIST_COCHILO: {
+      if (decorrido >= COGNI_HIST_COCHILO_MS) {
+        // Acorda com um susto: altura de volta de uma vez e uma piscada.
+        encerrarHistoria();
+        roboEyes.blink();
+        return false;
+      }
+      // A palpebra desce em TRES degraus, com pausa em cada um, em vez de descer
+      // linearmente. E o degrau que le como "lutando contra o sono" - descida suave
+      // pareceria so um fade, sem esforco nenhum por tras.
+      const int degrau = (int) ((decorrido * 4) / COGNI_HIST_COCHILO_MS);   // 0..3
+      const int padrao = roboEyes.eyeLheightDefault;
+      int altura = padrao;
+      if (degrau == 1)      altura = (padrao * 2) / 3;
+      else if (degrau == 2) altura = padrao / 3;
+      else if (degrau >= 3) altura = 2;                 // quase fechado
+      roboEyes.eyeLheightNext = roboEyes.eyeRheightNext = altura;
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+// Comeca uma cena aleatoria. O cochilo desliga o autoblinker porque ele e a unica que
+// escreve a ALTURA a cada quadro - a piscada da lib seria engolida em silencio, a mesma
+// armadilha ja documentada no envelope da fala.
+static void dispararHistoria() {
+  static Historia ultima = HIST_NENHUMA;
+  Historia escolhida = (Historia) random(HIST_MOSCA, HIST_COCHILO + 1);
+  for (int i = 0; i < 3 && escolhida == ultima; i++) {
+    escolhida = (Historia) random(HIST_MOSCA, HIST_COCHILO + 1);
+  }
+  ultima = escolhida;
+  historiaAtiva = escolhida;
+  historiaInicioMs = millis();
+  if (escolhida == HIST_COCHILO) roboEyes.setAutoblinker(OFF, 1, 1);
 }
 
 // Micro-movimentos involuntarios: sacadas (saltinhos aleatorios) + respiracao (balanco
@@ -2099,6 +2234,7 @@ static void configurarTela() {
   alturaOlhoPadrao = roboEyes.eyeLheightDefault;   // guarda antes de qualquer reacao mexer
   randomSeed(micros());                            // varia o suficiente pras anim espontaneas
   agendarProximaAnimEspontanea();                  // agenda a 1a "vida propria"
+  agendarProximaHistoria();                        // e a 1a micro-historia
   aplicarRosto(ROSTO_IDLE);   // estado inicial ate o servidor informar algo
   roboEyes.update();          // primeiro frame ja no boot
   logInfo("Tela", "OLED + RoboEyes inicializados");
@@ -2138,6 +2274,9 @@ static void tarefaOlho(void* arg) {
 
     if (r != REACAO_NENHUMA) {
       if (r != ultimaReacao) {             // transicao: limpa a anterior e arma a nova
+        // Uma reacao interrompe qualquer cena em curso: as duas disputam os mesmos
+        // olhos, e a reacao (que veio da conversa) e sempre a mais importante.
+        encerrarHistoria();
         if (ultimaReacao != REACAO_NENHUMA) limparReacao(ultimaReacao);
         iniciarReacao(r);
         // Funil unico de TODAS as reacoes (as da lib e as de desenho custom), entao e
@@ -2197,7 +2336,16 @@ static void tarefaOlho(void* arg) {
       }
       // Animacoes CONTINUAS do rosto atual (rodam a cada frame, ao contrario do
       // aplicarRosto, que so roda na transicao).
-      if (atual == ROSTO_PESQUISANDO) {
+      // MICRO-HISTORIA: se ha uma cena em curso ela manda nos olhos. Sair do repouso
+      // cancela na hora - se a crianca falou, a brincadeira acabou, e insistir na
+      // cena seria o robo ignorando ela.
+      if (historiaAtiva != HIST_NENHUMA && atual != ROSTO_IDLE) encerrarHistoria();
+      const bool emHistoria = animarHistoria();
+
+      if (emHistoria) {
+        // O idle mode da lib reposiciona sozinho e brigaria com a cena.
+        roboEyes.setIdleMode(OFF, 1, 1);
+      } else if (atual == ROSTO_PESQUISANDO) {
         animarVarredura();   // a varredura tem prioridade: ele esta procurando algo
       } else if (atual != ROSTO_DORMINDO) {
         // Segue o rosto da crianca em todos os outros estados (menos dormindo, que
@@ -2261,11 +2409,22 @@ static void tarefaOlho(void* arg) {
       // VIDA PROPRIA: so quando OCIOSO (idle) e sem ninguem falando, dispara reacoes
       // espontaneas de tempos em tempos. Fora do idle, adia o proximo disparo pra nao
       // acumular varias e estourar de uma vez ao voltar pro repouso.
-      if (atual == ROSTO_IDLE && (long)(millis() - proximaAnimEspontaneaMs) >= 0) {
+      if (atual == ROSTO_IDLE && historiaAtiva == HIST_NENHUMA &&
+          (long)(millis() - proximaAnimEspontaneaMs) >= 0) {
         dispararAnimacaoEspontanea();
         agendarProximaAnimEspontanea();
       } else if (atual != ROSTO_IDLE) {
         agendarProximaAnimEspontanea();
+      }
+
+      // MICRO-HISTORIAS: mesma logica das reacoes espontaneas, so que num intervalo
+      // bem mais longo - uma cena e um acontecimento, e acontecimento demais deixa de
+      // ser acontecimento. Fora do repouso, o relogio e adiado em vez de acumular.
+      if (atual == ROSTO_IDLE && historiaAtiva == HIST_NENHUMA && reacaoAtiva == REACAO_NENHUMA &&
+          (long)(millis() - proximaHistoriaMs) >= 0) {
+        dispararHistoria();
+      } else if (atual != ROSTO_IDLE) {
+        agendarProximaHistoria();
       }
     }
 

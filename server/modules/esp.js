@@ -840,6 +840,16 @@ function reagirResetConversa(usuarioId) {
 // Feedback da webcam (que vive no NAVEGADOR - o servidor nao tem como saber sozinho
 // se ela ligou). O dashboard avisa por POST /api/esp/camera, tanto no clique do botao
 // da interface quanto quando o botao FISICO manda ele alternar a camera.
+// Fatia o dia em quatro periodos. Usa a hora LOCAL do servidor de proposito: o robo
+// fica na mesma casa que a crianca, entao a hora da maquina e a hora dela.
+function periodoDoDia() {
+  const h = new Date().getHours()
+  if (h < 6)  return 'madrugada'
+  if (h < 12) return 'manha'
+  if (h < 18) return 'tarde'
+  return 'noite'
+}
+
 function reagirCamera(ativa) {
   cameraLigada = !!ativa
   atividade.emitirReacao(ativa ? 'camera-on' : 'camera-off')
@@ -858,6 +868,11 @@ function enviarExpressaoParaEsp(ws = null) {
     estado: ultimoEstadoConversa,
     mutado: micRoboMutado,
     camera: cameraLigada,
+    // Periodo do dia. O ESP nao tem relogio de parede (nao usamos NTP), entao quem
+    // sabe a hora e o servidor. Serve para o robo ficar naturalmente mais sonolento a
+    // noite - um detalhe pequeno que faz muita diferenca na sensacao de que ele vive
+    // no mesmo mundo que a crianca, em vez de ser sempre o mesmo o dia inteiro.
+    periodo: periodoDoDia(),
   }
   if (ws) return enviarComandoParaConexao(ws, 'expressao', payload)
   return enviarComando('expressao', payload)
