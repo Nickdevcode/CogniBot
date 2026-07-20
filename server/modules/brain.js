@@ -5,6 +5,7 @@ const { log } = require('./logger')
 const { montarSystemPrompt, limparReferenciasResposta, obterDataAtualFormatada, pediuFonte, lembreteDataSystem } = require('./brain/prompt')
 const { extrairMemoriasRegex, verificarOnboarding, extrairMemoriasComIA, temEssenciais } = require('./brain/memoria-ai')
 const { criarAcumuladorSentencas } = require('./brain/sentencas')
+const { criarChatCompletion } = require('./brain/openai')
 const { triagemRapida, MODO_PAPO } = require('./brain/triagem')
 const { atualizarIdiomaPorMensagem, limparEstadoSessao } = require('./brain/idioma')
 const { obterEntrada } = require('./brain/aprendizado')
@@ -14,8 +15,14 @@ const { filtrarPalavroesSaida, verificarEntrada, ehDialogoAlucinado } = require(
 const { registrarConversa, atualizarConversaPosIA } = require('./supabase')
 const { obterPlanoAtivo, refrescarPlanoAtivo } = require('./planos')
 const { pedidoDePareamento, respostaCodigoFalado } = require('./pareamento')
+const { emitirReacao } = require('./esp-atividade')
 
 const conversas = new Map()
+
+// Ultima materia ja sinalizada nos olhos do robo, por sessao. Sem isso o icone
+// piscaria a cada turno enquanto a crianca continua no mesmo assunto. Chave =
+// sessionId (e nao um `let` de modulo) para duas sessoes nao se atropelarem.
+const materiaDaSessao = new Map()
 
 function obterOuCriarConversa(sessionId) {
   if (!conversas.has(sessionId)) {
@@ -105,8 +112,8 @@ async function classificarInteracao(texto) {
   const dataAtual = obterDataAtualFormatada()
   let resultado = INTERACAO_PADRAO
   try {
-    const resposta = await openai.chat.completions.create({
-      model: config.CHAT_MODEL,
+    const resposta = await criarChatCompletion(openai, {
+      model: config.CHAT_MODEL_AUX,
       messages: [
         {
           role: 'system',
@@ -125,7 +132,7 @@ Regra de ouro: se a resposta e uma EXPLICACAO -> pesquisar false; se e um VALOR/
         },
         { role: 'user', content: texto },
       ],
-      max_tokens: 20,
+      maxTokens: 20,
       temperature: 0,
       response_format: { type: 'json_object' },
     })
@@ -175,10 +182,10 @@ async function gerarComWebSearch(mensagens) {
 
 async function gerarComStream(mensagens, modelo, maxTokens, onDelta) {
   let textoCompleto = ''
-  const resposta = await openai.chat.completions.create({
+  const resposta = await criarChatCompletion(openai, {
     model: modelo,
     messages: mensagens,
-    max_tokens: maxTokens,
+    maxTokens,
     temperature: 0.7,
     stream: true,
   })
@@ -268,7 +275,7 @@ async function pipelinePosResposta(usuario, usuarioId, sessionId, textoUsuario, 
   // precisa que o regex) e sensivel (sinal emocional pros pais, alem do regex).
   let analiseIA = null
   try {
-    analiseIA = await extrairMemoriasComIA(openai, config.CHAT_MODEL, usuarioId, textoUsuario, textoResposta)
+    analiseIA = await extrairMemoriasComIA(openai, config.CHAT_MODEL_AUX, usuarioId, textoUsuario, textoResposta)
   } catch (err) {
     log('Erro', `Memoria com IA falhou: ${err.message}`)
   }
@@ -293,6 +300,16 @@ async function pipelinePosResposta(usuario, usuarioId, sessionId, textoUsuario, 
     }
   }
 
+  // Reacao dos OLHOS quando o robo aprende/atualiza/esquece algo sobre a crianca: a
+  // extracao acima acabou de mexer no que ele SABE. So no caminho do ROBO (a interface
+  // web ignora 'reacao'). Aprendeu/atualizou -> estrelinhas ('ideia'); so esqueceu ->
+  // 'confuso'. Roda pos-resposta, entao aparece logo apos a fala (bom timing).
+  if (origem === 'robo' && analiseIA?.memoria) {
+    const m = analiseIA.memoria
+    if (m.adicionou || m.editou) emitirReacao('ideia')
+    else if (m.removeu) emitirReacao('confuso')
+  }
+
   // Onboarding DEPOIS da extracao: recarrega o usuario (a IA acabou de gravar os
   // campos via atualizarUsuario) pra decidir "completo?" com os dados frescos.
   if (ehOnboarding) {
@@ -304,7 +321,7 @@ async function pipelinePosResposta(usuario, usuarioId, sessionId, textoUsuario, 
     try {
       await analisarPedagogicamente(
         openai,
-        config.CHAT_MODEL,
+        config.CHAT_MODEL_AUX,
         usuarioId,
         contextoIdioma.idiomaAtivo,
         textoUsuario,
@@ -390,19 +407,19 @@ async function conversar(usuarioId, textoUsuario, imagemBase64 = null, callbacks
     } catch (err) {
       log('Erro', `WebSearch falhou: ${err.message}. Usando fallback.`)
       usarWebSearch = false
-      const resposta = await openai.chat.completions.create({
+      const resposta = await criarChatCompletion(openai, {
         model: modelo,
         messages: mensagens,
-        max_tokens: maxTokens,
+        maxTokens,
         temperature: 0.7,
       })
       textoResposta = resposta.choices[0]?.message?.content || ''
     }
   } else {
-    const resposta = await openai.chat.completions.create({
+    const resposta = await criarChatCompletion(openai, {
       model: modelo,
       messages: mensagens,
-      max_tokens: maxTokens,
+      maxTokens,
       temperature: 0.7,
     })
     textoResposta = resposta.choices[0]?.message?.content || ''
@@ -494,6 +511,21 @@ async function conversarStream(usuarioId, textoUsuario, imagemBase64 = null, cal
   const tokensExtraIdioma = contextoIdioma?.modoEnsino ? 120 : 0
   const maxTokens = (ehOnboarding ? config.CHAT_MAX_TOKENS_ONBOARDING : config.CHAT_MAX_TOKENS) + tokensExtraIdioma
   const modelo = temImagem ? config.VISION_CHAT_MODEL : config.CHAT_MODEL
+
+  // ICONE DE MATERIA nos olhos do robo. Fica AQUI, antes do decidirInteracao (que
+  // pode gastar centenas de ms num classificador de IA), porque a janela util e
+  // curta: o icone precisa aparecer ANTES da primeira sentenca virar audio.
+  // Reusa o MESMO classificador por regex do Diario (sincrono, sem IA, custo zero) -
+  // em pipelinePosResposta ele so roda com a resposta pronta, tarde demais pro rosto.
+  // Passamos so a fala da crianca (a resposta ainda nao existe): perde um pouco de
+  // precisao, mas erra pro lado seguro - sem casamento vira 'outros' e nao ha icone.
+  if (origem === 'robo') {
+    const materia = classificarMateria(textoUsuario)
+    if (materia !== 'outros' && materia !== materiaDaSessao.get(sessionId)) {
+      materiaDaSessao.set(sessionId, materia)
+      emitirReacao(`materia-${materia}`)
+    }
+  }
 
   const interacao = temImagem ? { modo: MODO_PAPO, pesquisar: false } : await decidirInteracao(textoUsuario)
   let usarWebSearch = interacao.pesquisar
@@ -588,6 +620,7 @@ async function conversarStream(usuarioId, textoUsuario, imagemBase64 = null, cal
 function limparConversa(usuarioId) {
   const sessionId = `sessao_${usuarioId}`
   conversas.delete(sessionId)
+  materiaDaSessao.delete(sessionId)
   limparEstadoSessao(sessionId)
 }
 

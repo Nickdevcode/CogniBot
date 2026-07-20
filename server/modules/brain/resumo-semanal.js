@@ -12,6 +12,7 @@
 
 const { getClient, lerUltimoResumoSemanal, registrarResumoSemanal, contarConversasDesde } = require('../supabase')
 const { log } = require('../logger')
+const { criarChatCompletion } = require('./openai')
 
 const DIAS_JANELA = 7
 // Teto de conversas mandadas pra IA: protege o custo/tamanho do prompt numa semana
@@ -129,10 +130,10 @@ async function gerarResumoSemanal({ openai, modelo }, criancaId, nomeCrianca = '
   const fonte = compactarConversas(conversas)
   const prompt = montarPromptResumo(nomeCrianca, fonte.resumoFonte)
 
-  const resposta = await openai.chat.completions.create({
+  const resposta = await criarChatCompletion(openai, {
     model: modelo,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 320,
+    maxTokens: 320,
     temperature: 0.8, // bilhete carinhoso pede um pouco mais de calor/variedade
   })
   const resumo = (resposta.choices[0]?.message?.content || '').trim()

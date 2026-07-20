@@ -55,9 +55,29 @@ function emitirResposta(texto) {
   emitir({ tipo: 'resposta', texto, em: Date.now() })
 }
 
+// Reacao PONTUAL dos olhos, disparada pelo CONTEUDO da conversa (elogio -> coracoes,
+// piada -> riso, etc.). Diferente do estado CONTINUO acima, e um evento efemero: o
+// esp.js repassa ao robo (mensagem "reacao") e a tela anima por alguns segundos. Sem
+// dedup (cada reacao e um disparo unico). emocao vem de detectarReacao (esp-reacoes).
+function emitirReacao(emocao) {
+  if (typeof emocao !== 'string' || !emocao) return
+  emitir({ tipo: 'reacao', emocao, em: Date.now() })
+}
+
+// Comando pontual para a INTERFACE. Usado quando um botao FISICO do robo pede uma
+// acao que so o navegador consegue executar - hoje, ligar/desligar a webcam do PC
+// (a camera vive no browser). Vai pelo mesmo SSE de atividade; o cliente reage em
+// tratarAtividadeRobo (client/app.js).
+function emitirComando(acao) {
+  if (typeof acao !== 'string' || !acao) return
+  emitir({ tipo: 'comando', acao, em: Date.now() })
+}
+
 module.exports = {
   registrarOuvinte,
   emitirEstado,
   emitirTranscricao,
   emitirResposta,
+  emitirReacao,
+  emitirComando,
 }

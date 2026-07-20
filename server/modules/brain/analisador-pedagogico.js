@@ -2,6 +2,7 @@ const { log } = require('../logger')
 const { carregarUsuario, atualizarUsuario } = require('../memoria')
 const { registrarPratica, adicionarPalavras, atualizarNivel, obterEntrada } = require('./aprendizado')
 const { nomeIdioma } = require('./idioma')
+const { criarChatCompletion } = require('./openai')
 
 const MAX_CHARS_ENTRADA = 600
 
@@ -57,10 +58,10 @@ async function analisarPedagogicamente(openai, modelo, usuarioId, codigoIdioma, 
 
   let textoResposta
   try {
-    const resposta = await openai.chat.completions.create({
+    const resposta = await criarChatCompletion(openai, {
       model: modelo,
       messages: [{ role: 'user', content: montarPrompt(usuario, codigoIdioma, textoUsuario, respostaIA, entradaAtual) }],
-      max_tokens: 280,
+      maxTokens: 280,
       temperature: 0.2,
       response_format: { type: 'json_object' },
     })

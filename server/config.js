@@ -27,27 +27,55 @@ const config = {
   // ===================================================================
   // MODELOS DE CHAT
   // ===================================================================
-  // CHAT_MODEL e o "cerebro" da Cogni (raciocinio, pedagogia, conversa). Hoje:
-  // gpt-4o-mini (modelo pequeno/antigo de 2024). Toda a engenharia de prompt
-  // pedagogico foi feita PRA COMPENSAR a fraqueza dele.
+  // CHAT_MODEL e o "cerebro" da Cogni (raciocinio, pedagogia, conversa). Agora:
+  // gpt-5.4-mini (modelo de RACIOCINIO real). Substituiu o gpt-4o-mini (2024),
+  // fraco, para o qual toda a engenharia de prompt pedagogico existia como muleta.
+  // Ganho: entende a intencao, acerta data, ensina melhor, fala mais natural.
+  // Precos (mai/2026): in $0.75 / out $4.50 por 1M tokens (+cache de input barato,
+  // e o system prompt repete). Teto no uso de TCC: < ~$20/mes.
   //
-  // >>> UPGRADE DE INTELIGENCIA (proximo passo, 1 linha): trocar para
-  //     'gpt-5.4-mini'. E o maior salto de qualidade pelo menor custo razoavel
-  //     (raciocinio real -> acerta data, entende a intencao, ensina melhor).
-  //     Precos (mai/2026): in $0.75 / out $4.50 por 1M tokens (+cache de input
-  //     ~$0.075, e o system prompt repete, entao barateia muito). Teto no uso de
-  //     TCC: < $20/mes. NOTA: e modelo de RACIOCINIO (pode ter +latencia e gerar
-  //     reasoning tokens). Pra voz, comece com esforco de raciocinio baixo/medio
-  //     e suba so no escolar. Se trocar o CHAT_MODEL, troque tambem o
-  //     VISION_CHAT_MODEL pra 'gpt-5.4' (ou mantenha gpt-4o se preferir econom.).
-  //     Alternativa mais barata: 'gpt-5.4-nano' (in $0.20 / out $1.25) - geracao
-  //     nova, quase o preco do atual, mas raciocinio pedagogico um degrau abaixo.
-  CHAT_MODEL: 'gpt-4o-mini',
-  VISION_CHAT_MODEL: 'gpt-4o',
+  // >>> IMPORTANTE (API de raciocinio): modelos gpt-5.x/o1/o3 no Chat Completions
+  //     NAO aceitam `temperature` nem `max_tokens` - usam `max_completion_tokens`
+  //     e `reasoning_effort`. Isso e tratado de forma centralizada pelo helper
+  //     criarChatCompletion (modules/brain/openai.js), que detecta o modelo e monta
+  //     os parametros certos - os call sites continuam passando { maxTokens,
+  //     temperature } normalmente e o helper converte. Para voltar ao gpt-4o-mini
+  //     (legado), basta trocar CHAT_MODEL de volta: o helper cai no ramo legado.
+  //     Alternativa mais barata: 'gpt-5.4-nano' (in $0.20 / out $1.25).
+  CHAT_MODEL: process.env.CHAT_MODEL || 'gpt-5.4-mini',
+  // Esforco de raciocinio do gpt-5.4-mini. Valores validos: none|low|medium|high|xhigh
+  // (ATENCAO: este modelo NAO aceita 'minimal'). Medido em streaming (jul/2026), o
+  // time-to-first-token da conversa de voz: 'none' ~550ms, 'low' ~650ms - ambos com
+  // respostas otimas. Default 'low': ganho de raciocinio real com latencia ainda baixa.
+  //   - 'none'   : latencia minima (o gpt-5.4-mini base ja e otimo; sem chain-of-thought)
+  //   - 'medium+': respostas mais elaboradas para licao/matematica (ao custo de latencia
+  //                e tokens de raciocinio - mais caro). Ignorado pelos modelos legados.
+  CHAT_REASONING_EFFORT: process.env.CHAT_REASONING_EFFORT || 'low',
+  // Reserva de tokens para o RACIOCINIO, somada ao maxTokens (tamanho desejado da
+  // RESPOSTA) ao montar max_completion_tokens. Necessaria porque os reasoning tokens
+  // consomem do mesmo orcamento: sem reserva, um limite curto (ex.: classificador,
+  // maxTokens=20) seria todo gasto pensando e a resposta sairia vazia. Dimensionada
+  // para o reasoning_effort 'low' em respostas curtas de voz. Ignorada no legado.
+  CHAT_REASONING_RESERVA_TOKENS: Number(process.env.CHAT_REASONING_RESERVA_TOKENS) || 512,
+  VISION_CHAT_MODEL: process.env.VISION_CHAT_MODEL || 'gpt-4o',
   SEARCH_MODEL: 'gpt-4o-mini-search-preview',
+  // Modelo AUXILIAR para tarefas de TRIAGEM e BACKGROUND (classificar modo/pesquisa,
+  // extrair memoria, analise pedagogica, dica, resumo semanal). Deliberadamente
+  // BARATO e RAPIDO (nao-raciocinio): sao tarefas de classificacao/extracao
+  // estruturada, que modelos pequenos fazem bem, e uma delas (o classificador) roda
+  // no CAMINHO CRITICO antes da 1a fala - reasoning ali so adicionaria latencia. O
+  // cerebro que CONVERSA continua no CHAT_MODEL (gpt-5.4-mini). Para usar o mesmo
+  // modelo em tudo, aponte este para o CHAT_MODEL.
+  CHAT_MODEL_AUX: process.env.CHAT_MODEL_AUX || 'gpt-4o-mini',
 
-  TTS_MODEL: 'gpt-4o-mini-tts',
-  TTS_MODEL_SNAPSHOT: 'gpt-4o-mini-tts-2025-12-15',
+  // Voz (TTS). O gpt-4o-mini-tts e o mais barato do mercado (~$15/1M chars) e aceita
+  // "instructions" em linguagem natural (ver TTS_INSTRUCTIONS_BASE). CALIBRACAO da
+  // naturalidade (precisa ouvir - use localhost/monitor): se a voz soar "arrastada"
+  // ou "escura" (relato conhecido do modelo em 2026), teste TTS_SPEED 1.03-1.06 e
+  // compare o SNAPSHOT vs o modelo BASE (as duas chaves abaixo) - as vezes o base
+  // soa mais claro. Ambos configuraveis por .env para calibrar sem editar codigo.
+  TTS_MODEL: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
+  TTS_MODEL_SNAPSHOT: process.env.TTS_MODEL_SNAPSHOT || 'gpt-4o-mini-tts-2025-12-15',
   TTS_VOICE: 'marin',
   TTS_VOICE_CRIANCA: 'marin',
   TTS_VOICE_ADOLESCENTE: 'marin',
@@ -86,7 +114,9 @@ Listener context: This person is a child between 5 and 11 years old. Add a littl
   TTS_INSTRUCTIONS_ADOLESCENTE_EXTRA: `
 
 Listener context: This person is 12 or older. Speak like a slightly older friend — casual, modern, in on the joke. Keep the same relaxed young energy (in attitude and word choice, not by thickening the accent). Confident energy, no condescension.`,
-  TTS_SPEED: 1.0,
+  // Velocidade da fala (1.0 = nativa). Configuravel por .env para calibrar sem mexer
+  // no codigo: se a voz soar arrastada, suba pra ~1.05; se soar apressada, desca.
+  TTS_SPEED: Number(process.env.TTS_SPEED) || 1.0,
 
   DEVELOPER_SECRET: process.env.DEVELOPER_SECRET || 'nickdev',
 
@@ -139,7 +169,6 @@ Listener context: This person is 12 or older. Speak like a slightly older friend
   // Quantos pings seguidos sem pong toleramos antes de terminar a conexao. Com 2,
   // um unico pong atrasado (modem acordando) nao derruba mais o robo.
   ESP_HEARTBEAT_MAX_FALHAS: Number(process.env.ESP_HEARTBEAT_MAX_FALHAS) || 2,
-  ESP_MAX_FRAME_BYTES: 200 * 1024,
 
   // Tamanho de cada pedaco de audio enviado ao robo. A lib WebSocket do ESP
   // (Links2004) FECHA a conexao se receber uma mensagem maior que 15KB
@@ -194,6 +223,19 @@ Listener context: This person is 12 or older. Speak like a slightly older friend
   // "abaixo do alvo" -> pacingMin). 4 e suficiente; subir nao muda muito (o pacing
   // ja despeja o resto rapido). Ver bombearFalaStream/preloadLargada em esp.js.
   ESP_AUDIO_BURST_CHUNKS: Number(process.env.ESP_AUDIO_BURST_CHUNKS) || 4,
+
+  // Teto do buffer de TRANSMISSAO do socket (ws.bufferedAmount, em bytes) antes de
+  // segurar o envio. E o segundo sinal do controle de fluxo, complementar ao nivel
+  // que o robo REPORTA. Por que existe: o nivel reportado mede o audio que o robo ja
+  // tem EM MAOS; e cego ao que esta represado no socket TCP a caminho. Sob jitter de
+  // Wi-Fi, o robo reporta buffer baixo (o audio ainda nao chegou) e o pacing por
+  // nivel despejaria chunks a jato (pacingMin) num socket JA congestionado - inchando
+  // a fila TCP, atrasando o pong do heartbeat e derrubando a conexao "na fala". Com
+  // este teto, antes de injetar mais audio esperamos o socket drenar: o ritmo real de
+  // envio passa a acompanhar a vazao da rede, quebrando esse laco de realimentacao.
+  // ~4 chunks (16KB) da folga para o pipeline normal (bufferedAmount fica ~0 quando a
+  // rede acompanha) e so freia quando ha congestao real. 0 desliga a guarda.
+  ESP_AUDIO_SOCKET_BACKLOG_MAX_BYTES: Number(process.env.ESP_AUDIO_SOCKET_BACKLOG_MAX_BYTES) || 16_384,
 
   // Formato do audio enviado ao robo:
   //   'pcm' - PCM raw 24kHz 16-bit mono (formato nativo da OpenAI TTS). O ESP32

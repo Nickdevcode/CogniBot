@@ -22,6 +22,7 @@
 const { getClient, lerUltimaDica, contarConversasDesde, registrarDica } = require('../supabase')
 const { carregarUsuario } = require('../memoria')
 const { log } = require('../logger')
+const { criarChatCompletion } = require('./openai')
 
 // Janela de topicos recentes que alimentam a dica (dias). Curta de proposito: a
 // dica fala do "agora" da crianca, nao do historico inteiro.
@@ -110,10 +111,10 @@ async function gerarTextoDica({ openai, modelo }, criancaId, nomeCrianca) {
   }
 
   const prompt = montarPromptDica(nome, memorias, topicos)
-  const resposta = await openai.chat.completions.create({
+  const resposta = await criarChatCompletion(openai, {
     model: modelo,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 120,
+    maxTokens: 120,
     temperature: 0.8,
   })
   const dica = (resposta.choices[0]?.message?.content || '').trim()

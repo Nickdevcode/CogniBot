@@ -1,5 +1,6 @@
 const { carregarUsuario, salvarUsuario, atualizarUsuario } = require('../memoria')
 const { log } = require('../logger')
+const { criarChatCompletion } = require('./openai')
 
 const NOMES_PROIBIDOS = [
   'cogni', 'robo', 'robô', 'tutor', 'tutora', 'assistente',
@@ -380,10 +381,10 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
 
   let textoResposta
   try {
-    const resposta = await openai.chat.completions.create({
+    const resposta = await criarChatCompletion(openai, {
       model: modelo,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 300, // folga pro campo "topico" extra nao truncar o JSON
+      maxTokens: 300, // folga pro campo "topico" extra nao truncar o JSON
       temperature: 0.2,
       response_format: { type: 'json_object' },
     })
@@ -410,6 +411,10 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
   const materia = validarMateria(dados.materia)
   const sensivel = dados.sensivel === true
 
+  // Rastreia o TIPO de mudanca de memoria para o robo reagir nos olhos (aprendeu ->
+  // estrelinhas; esqueceu -> confuso). Capturadas por closure dentro do callback.
+  let memAdicionou = false, memEditou = false, memRemoveu = false
+
   await atualizarUsuario(usuarioId, (u) => {
     if (!Array.isArray(u.memorias)) u.memorias = []
     const mems = u.memorias
@@ -418,7 +423,7 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
     // 0) INFORMACOES estruturadas (idade/serie/materia/hobbies/comoAprende). Aplica
     //    com validacao por campo ANTES da memoria, pra o filtro anti-duplicacao
     //    abaixo saber o que ja virou campo.
-    if (aplicarInformacoes(u, dados.informacoes)) mudou = true
+    if (aplicarInformacoes(u, dados.informacoes)) { mudou = true; memAdicionou = true }
 
     const ehIndiceValido = (n) => Number.isInteger(n) && n >= 1 && n <= mems.length
 
@@ -434,6 +439,7 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
         log('Memoria', `Substituindo [${item.indice}] "${antigo}" -> "${texto}"`)
         mems[item.indice - 1] = texto
         mudou = true
+        memEditou = true
       }
     }
 
@@ -449,6 +455,7 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
         log('Memoria', `Removendo [${idx}]: "${mems[idx - 1]}"`)
         mems.splice(idx - 1, 1)
         mudou = true
+        memRemoveu = true
       }
     }
 
@@ -464,6 +471,7 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
         if (mems.length >= MAX_MEMORIAS) break
         mems.push(texto)
         mudou = true
+        memAdicionou = true
       }
     }
 
@@ -490,7 +498,8 @@ async function extrairMemoriasComIAInterno(openai, modelo, usuarioId, textoUsuar
 
   // Volta pra pipeline completar a linha da conversa no Diario. topico null = papo
   // sem assunto; materia null = usar o fallback regex; sensivel = sinal pros pais.
-  return { topico, materia, sensivel }
+  // memoria = o que mudou no que o robo SABE sobre a crianca (pros olhos reagirem).
+  return { topico, materia, sensivel, memoria: { adicionou: memAdicionou, editou: memEditou, removeu: memRemoveu } }
 }
 
 module.exports = {
