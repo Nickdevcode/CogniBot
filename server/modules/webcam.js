@@ -1,11 +1,9 @@
 // Store do ULTIMO FRAME DA WEBCAM DO PC (a webcam da interface localhost), para a
 // visao da Cogni funcionar tambem quando a crianca fala pelo ROBO FISICO.
 //
-// Por que existe (e por que e separado da ESP-CAM em esp.js): sao DUAS fontes de
-// imagem distintas. A ESP-CAM (esp.js, ultimoFrame) e a camera do robo fisico, que
-// chega por WebSocket — fase futura. Esta aqui e a webcam do PC, que a INTERFACE
-// captura no browser e envia por HTTP (POST /api/esp/webcam/frame). Mantemos os
-// dois caminhos isolados, cada um com seu TTL.
+// Esta e a UNICA fonte de imagem do projeto: a webcam do dispositivo onde o
+// dashboard esta aberto, capturada no browser e enviada por HTTP (POST
+// /api/esp/webcam/frame). O robo nao tem camera propria.
 //
 // Fluxo: quando o robo detecta voz, o servidor emite o estado 'ouvindo' (SSE de
 // atividade). A interface, se a camera estiver ligada, captura UM frame e o envia.
@@ -14,8 +12,8 @@
 
 const ultimoFrame = { base64: null, recebidoEm: 0 }
 
-// TTL maior que os 5s da ESP-CAM de proposito: o frame e capturado no INICIO da
-// fala (no 'ouvindo'), mas a IA so roda depois do STT — alguns segundos depois.
+// TTL generoso de proposito: o frame e capturado no INICIO da fala (no 'ouvindo'),
+// mas a IA so roda depois do STT — alguns segundos depois.
 // 10s cobre a fala + o pipeline com folga, sem reusar frame de uma fala anterior.
 const TTL_MS = 10000
 

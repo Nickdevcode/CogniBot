@@ -70,6 +70,48 @@
 #define COGNI_PIN_I2S_IN_SD      33   // SD (saida de dados do mic)
 
 // =======================================================================
+// PINAGEM - 4 botoes fisicos (controle no corpo do robo)
+// =======================================================================
+// Os 4 botoes replicam as acoes do painel de controle web. Cada botao liga um
+// GPIO livre ao GND e usamos o pull-up interno (INPUT_PULLUP): o pino fica em
+// HIGH solto e vai a LOW quando apertado. A ORDEM abaixo e so convencao - troque
+// o GPIO de cada acao a vontade, contanto que use GPIOs LIVRES (nao os de audio:
+// 14/22/27/32 da saida e 25/26/33 do mic) e que suportem entrada com pull-up
+// (evite os input-only 34/35/36/39 e o strapping 12). 13/16/17/4 sao seguros.
+#define COGNI_PIN_BTN_MIC          13   // mutar/desmutar o microfone do robo
+#define COGNI_PIN_BTN_CAMERA       16   // ligar/desligar a webcam do PC (via site)
+#define COGNI_PIN_BTN_INTERROMPER  17   // interromper a fala/conversa em curso
+#define COGNI_PIN_BTN_RESET         4   // reiniciar a conversa (limpa o contexto)
+
+// Debounce (ms): ignora o repique mecanico do contato. So conta o toque quando o
+// nivel do pino fica estavel por esse tempo. 40ms cobre o repique tipico sem
+// perceptivelmente atrasar a resposta.
+#define COGNI_BTN_DEBOUNCE_MS      40
+
+// =======================================================================
+// PINAGEM - Tela OLED SSD1309 2,42" 128x64 (olhos do robo, interface I2C)
+// =======================================================================
+// Modulo I2C de 4 pinos (GND / VDD / SCL / SDA). O I2C padrao do ESP32 usa
+// SDA=21/SCL=22, mas o GPIO 22 e o DIN do amplificador - por isso remapeamos o
+// barramento com Wire.begin(SDA, SCL) para pinos livres. SDA=21 e SCL=19 estao
+// livres e nao conflitam com o audio.
+#define COGNI_PIN_OLED_SDA         21   // SDA da tela
+#define COGNI_PIN_OLED_SCL         19   // SCL da tela
+#define COGNI_OLED_ADDR            0x3C // endereco I2C tipico (use 0x3D se um scan I2C acusar)
+#define COGNI_OLED_LARGURA         128
+#define COGNI_OLED_ALTURA          64
+#define COGNI_OLED_FPS             50   // teto de quadros/s da animacao dos olhos
+// Duracao (ms) de uma REACAO pontual dos olhos (coracoes/riso/confuso...), disparada
+// pelo servidor pelo conteudo da conversa. Passado esse tempo, os olhos voltam ao
+// rosto de estado (ouvindo/pensando/falando/idle).
+#define COGNI_REACAO_DURACAO_MS    2200UL
+// VIDA PROPRIA: quando ocioso (idle), o robo dispara reacoes espontaneas aleatorias
+// (piscadinha, risadinha, coracao...) num intervalo aleatorio entre MIN e MAX ms.
+// Menor = mais "vivo"/agitado; maior = mais calmo. Aumente se achar que anima demais.
+#define COGNI_IDLE_ANIM_MIN_MS     6000UL
+#define COGNI_IDLE_ANIM_MAX_MS     15000UL
+
+// =======================================================================
 // Comportamento de audio
 // =======================================================================
 
@@ -167,4 +209,8 @@
 #define COGNI_WIFI_TIMEOUT_MS         30000UL  // espera maxima conectando
 #define COGNI_WS_RECONNECT_MS         5000UL   // backoff entre reconexoes WS
 #define COGNI_STATUS_INTERVAL_MS      15000UL  // periodicidade do status
+// Reaplica WiFi.setSleep(false) a cada X ms no loop. O modem-sleep pode voltar sem
+// passar por reconexao do WS (roaming/renegociacao 802.11), atrasando o pong do
+// heartbeat e derrubando a conexao "na fala"; reaplicar periodicamente fecha a brecha.
+#define COGNI_WIFI_SLEEP_GUARD_MS     10000UL
 #define COGNI_SERIAL_BAUD             115200

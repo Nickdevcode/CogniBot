@@ -9,7 +9,7 @@ const { vincularPorCodigo, desvincularPorCrianca } = require('../modules/pareame
 const { processarFrame, validarImagem } = require('../modules/vision')
 const { verificarEntrada, RESPOSTA_BLOQUEIO, sanitizarNome, sanitizarTexto, ehTextoLixo } = require('../modules/safety')
 const { criarUsuario, listarUsuarios, carregarUsuario, excluirUsuario, refrescarTodosUsuarios } = require('../modules/memoria')
-const { obterEstado, enviarAudioParaRobo, obterUltimoFrameBase64 } = require('../modules/esp')
+const { obterEstado, enviarAudioParaRobo, reagirResetConversa } = require('../modules/esp')
 const { limparReferenciasResposta, pediuFonte } = require('../modules/brain/prompt')
 const { log } = require('../modules/logger')
 const config = require('../config')
@@ -202,12 +202,8 @@ router.post('/conversation', upload.single('audio'), limitePipeline, async (req,
     }
 
     const usuarioId = sanitizarTexto(req.body?.usuarioId, 100) || 'default'
-    let imagem = req.body?.imagem || null
-
-    if (!imagem) {
-      const frameEsp = obterUltimoFrameBase64()
-      if (frameEsp) imagem = frameEsp
-    }
+    // A visao vem da webcam do PC, capturada no proprio navegador e enviada junto.
+    const imagem = req.body?.imagem || null
 
     const usarRobo = req.body?.usarRobo === 'true' || req.body?.usarRobo === true
 
@@ -427,6 +423,9 @@ router.post('/reset', (req, res) => {
   const usuarioId = sanitizarTexto(req.body?.usuarioId, 100) || 'default'
   log('Reset', `Limpando contexto (usuario=${usuarioId})`)
   limparConversa(usuarioId)
+  // Olhos do robo: icone de "recomecar" - mas so se o perfil resetado for o que o
+  // robo esta usando agora (a interface pode limpar a conversa de outra crianca).
+  reagirResetConversa(usuarioId)
   res.json({ mensagem: 'Conversa reiniciada' })
 })
 

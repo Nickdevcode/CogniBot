@@ -1,21 +1,14 @@
 import { criarLogger } from './logger.js'
-import { atualizarStatusESP, atualizarSnapshotCam } from './ui.js'
+import { atualizarStatusESP } from './ui.js'
 
 const log = criarLogger('ESP')
 
-let intervaloSnapshot = null
 let cancelarStream = null
 let cancelarAtividade = null
 let estadoAtual = null
 
 export function obterEstadoESP() {
   return estadoAtual
-}
-
-export function temCameraESPAtiva() {
-  if (!estadoAtual) return false
-  const ms = estadoAtual.camera?.ultimoFrameMs
-  return estadoAtual.camera?.conectados > 0 && ms !== null && ms < 5000
 }
 
 export function iniciarMonitoramentoESP({ onMudanca, onAtividade } = {}) {
@@ -59,8 +52,6 @@ export function iniciarMonitoramentoESP({ onMudanca, onAtividade } = {}) {
       log(`Falha ao iniciar SSE de atividade: ${err.message}`)
     }
   }
-
-  iniciarSnapshotPeriodico()
 }
 
 function iniciarPolling(onEstado) {
@@ -76,33 +67,6 @@ function iniciarPolling(onEstado) {
   cancelarStream = () => clearInterval(id)
 }
 
-function iniciarSnapshotPeriodico() {
-  pararSnapshot()
-  const tick = async () => {
-    if (!temCameraESPAtiva()) {
-      atualizarSnapshotCam(null)
-      return
-    }
-    try {
-      const resp = await fetch('/api/esp/camera/snapshot?t=' + Date.now(), { cache: 'no-store' })
-      if (!resp.ok) return
-      const blob = await resp.blob()
-      const url = URL.createObjectURL(blob)
-      atualizarSnapshotCam(url)
-      setTimeout(() => URL.revokeObjectURL(url), 6000)
-    } catch { /* ignora */ }
-  }
-  tick()
-  intervaloSnapshot = setInterval(tick, 4000)
-}
-
-function pararSnapshot() {
-  if (intervaloSnapshot) {
-    clearInterval(intervaloSnapshot)
-    intervaloSnapshot = null
-  }
-}
-
 export function pararMonitoramento() {
   // Zera o estado em cache: senao, ao trocar de usuario, obterEstadoESP()
   // retornaria o estado antigo (stale) antes do novo SSE chegar, podendo
@@ -116,5 +80,4 @@ export function pararMonitoramento() {
     cancelarAtividade()
     cancelarAtividade = null
   }
-  pararSnapshot()
 }

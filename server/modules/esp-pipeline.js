@@ -6,7 +6,8 @@ const { carregarUsuario } = require('./memoria')
 const { obterFrameWebcamBase64 } = require('./webcam')
 const { log } = require('./logger')
 const { transmitirAudio } = require('./monitor')
-const { emitirEstado, emitirTranscricao, emitirResposta } = require('./esp-atividade')
+const { emitirEstado, emitirTranscricao, emitirResposta, emitirReacao } = require('./esp-atividade')
+const { detectarReacao } = require('./esp-reacoes')
 
 const sessoes = new Map()
 
@@ -316,7 +317,15 @@ async function falarRespostaStream(sessao, texto, idadeUsuario, callbacks, durac
   // Legenda "Cogni" na interface assim que o TEXTO esta pronto (nao espera o TTS
   // das ultimas sentencas) - aparece mais cedo. Se o usuario ja interrompeu, nao
   // mostra (a fala foi cancelada).
-  if (!sessao.interrompido) emitirResposta(resposta)
+  if (!sessao.interrompido) {
+    emitirResposta(resposta)
+    // Reacao dos olhos pelo CONTEUDO (elogio -> coracoes, piada -> riso, "nao entendi"
+    // -> confuso...). Uma unica deteccao com os dois lados da conversa; a prioridade
+    // (amor da crianca vence celebra da Cogni) vive em detectarReacao. E pontual: a
+    // tela anima alguns segundos SOBRE o rosto de estado e volta sozinha ao normal.
+    const emocao = detectarReacao(resposta, texto)
+    if (emocao) emitirReacao(emocao)
+  }
 
   // Espera todos os TTS em voo e despacha o que faltou, na ordem.
   await Promise.allSettled(tarefas)

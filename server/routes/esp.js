@@ -1,7 +1,8 @@
 const express = require('express')
 const {
-  obterEstado, enviarComando, obterUltimoFrame, registrarOuvinteEstado,
+  obterEstado, enviarComando, registrarOuvinteEstado,
   enviarAudioParaRobo, definirUsuarioAtivo, definirMicMutado, definirRoboHabilitado, interromperRobo,
+  reagirCamera,
 } = require('../modules/esp')
 const { sintetizarPcm } = require('../modules/speech')
 const { sanitizarTexto } = require('../modules/safety')
@@ -51,20 +52,10 @@ router.get('/status/stream', (req, res) => {
   })
 })
 
-router.get('/camera/snapshot', (req, res) => {
-  const buffer = obterUltimoFrame()
-  if (!buffer) {
-    return res.status(404).json({ erro: 'Nenhum frame recente da ESP-CAM' })
-  }
-  res.set('Content-Type', 'image/jpeg')
-  res.set('Cache-Control', 'no-store')
-  res.send(buffer)
-})
-
-// Frame da WEBCAM DO PC enviado pela interface (visao da Cogni no caminho do robo
-// fisico). A interface captura UM frame quando o robo comeca a ouvir e o posta aqui;
-// o esp-pipeline.js le esse frame na hora de chamar a IA. Valida ANTES de gravar pra
-// nao poluir o store com lixo. Ver server/modules/webcam.js.
+// Frame da WEBCAM DO PC enviado pela interface (a visao da Cogni). A interface
+// captura UM frame quando o robo comeca a ouvir e o posta aqui; o esp-pipeline.js le
+// esse frame na hora de chamar a IA. Valida ANTES de gravar pra nao poluir o store
+// com lixo. Ver server/modules/webcam.js.
 router.post('/webcam/frame', (req, res) => {
   const imagem = req.body?.imagem
   if (!validarImagem(imagem)) return res.status(400).json({ erro: 'Frame da webcam invalido' })
@@ -135,9 +126,39 @@ router.post('/habilitar', (req, res) => {
 })
 
 // Interrompe o robo (botao "Parar" da interface): encerra a fala e a captura.
+// `feedback:false` suprime a animacao de "pausa" nos olhos quando o interromper e
+// so uma etapa do reset (que ja mostra o proprio icone).
 router.post('/interromper', (req, res) => {
-  const total = interromperRobo()
+  const comFeedback = req.body?.feedback !== false && req.body?.feedback !== 'false'
+  const total = interromperRobo(comFeedback)
   res.json({ interrompidos: total })
+})
+
+// POSICAO DO ROSTO da crianca (0..1), detectada no navegador, para os olhos do robo
+// acompanharem. Chega a ~10Hz: a rota e de proposito minima (valida, repassa e
+// responde vazio) e vai DIRETO ao WebSocket do robo, sem passar pelo barramento de
+// atividade/SSE - a interface nao consome isso e nao faz sentido acordar todos os
+// ouvintes 10 vezes por segundo.
+router.post('/olhar', (req, res) => {
+  const x = Number(req.body?.x)
+  const y = Number(req.body?.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return res.status(400).json({ erro: 'x e y devem ser numeros' })
+  }
+  // Trava em 0..1: um valor fora da faixa (bug no cliente, video com dimensao zero)
+  // viraria uma posicao absurda de olho no firmware.
+  const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
+  enviarComando('olhar', { x: clamp(x), y: clamp(y) })
+  res.status(204).end()
+})
+
+// A webcam vive no NAVEGADOR: o dashboard avisa aqui quando ela liga/desliga (tanto
+// pelo botao da interface quanto pelo botao FISICO, que manda o dashboard alternar),
+// e o robo mostra o icone de camera nos olhos.
+router.post('/camera', (req, res) => {
+  const ativa = req.body?.ativa === true || req.body?.ativa === 'true'
+  reagirCamera(ativa)
+  res.json({ ativa })
 })
 
 // Canal de ATIVIDADE (SSE): transmite a interface a transcricao da crianca, a

@@ -3,10 +3,9 @@ const crypto = require('crypto')
 const config = require('../config')
 const { log } = require('./logger')
 const { processarChunkPcm, configurarUsuario, descartarSessao, forcarFimDeFala, interromper } = require('./esp-pipeline')
+const atividade = require('./esp-atividade')
 
 const conexoesControle = new Map()
-const conexoesCamera = new Map()
-const ultimoFrame = { buffer: null, recebidoEm: 0, mimetype: 'image/jpeg' }
 const ouvintesEstado = new Set()
 
 // Estado de controle do robo, comandado pela interface (painel de controle):
@@ -23,6 +22,12 @@ let usuarioAtivoRobo = config.ESP_USUARIO_PADRAO
 let micRoboMutado = false
 let roboHabilitado = false
 
+// Ultimo estado da conversa (ouvindo/pensando/pesquisando/falando/idle) espelhado
+// para o robo, para os OLHOS na tela OLED reagirem. Alimentado pelo pipeline via
+// esp-atividade (ver o ouvinte registrado em configurarServidoresWebSocket) e
+// enviado ao ESP no evento "expressao" (junto com o mute).
+let ultimoEstadoConversa = 'idle'
+
 function broadcastEstado() {
   const estado = obterEstado()
   for (const ouvinte of ouvintesEstado) {
@@ -37,10 +42,6 @@ function broadcastEstado() {
 function obterEstado() {
   return {
     controle: { conectados: conexoesControle.size },
-    camera: {
-      conectados: conexoesCamera.size,
-      ultimoFrameMs: ultimoFrame.recebidoEm ? Date.now() - ultimoFrame.recebidoEm : null,
-    },
     mic: { mutado: micRoboMutado },
     usuarioAtivo: usuarioAtivoRobo,
     habilitado: roboHabilitado,
@@ -112,6 +113,13 @@ function tratarMensagemControle(ws, dados) {
         }
         ws.ultimoGaps = gaps
       }
+      // Diagnostico de pressao de heap: o firmware reporta a memoria livre; guardamos
+      // o MINIMO por fala (logado ao fim, em bombearFalaStream). Heap baixo na fala e
+      // o sinal da fragmentacao que ameaca os buffers do Wi-Fi/WebSocket.
+      const heap = Number(dados.payload?.heap)
+      if (Number.isFinite(heap) && (ws.heapMinFala == null || heap < ws.heapMinFala)) {
+        ws.heapMinFala = heap
+      }
       return   // mensagem de fluxo nao precisa de broadcast de estado
     } else if (dados.tipo === 'log') {
       log('ESP', `[${ws.metadata?.id || 'esp'}] ${dados.payload?.mensagem || ''}`)
@@ -125,10 +133,49 @@ function tratarMensagemControle(ws, dados) {
       } else {
         configurarUsuario(ws.idConexao, usuarioAtivoRobo)
       }
+    } else if (dados.tipo === 'botao') {
+      // Botao FISICO do robo: dispara a MESMA acao do painel de controle web.
+      tratarBotaoFisico(dados.payload?.acao)
+      return   // a propria acao ja faz broadcast/efeitos; nao precisa do broadcast abaixo
     }
     broadcastEstado()
   } catch (err) {
     log('Aviso', `Falha ao tratar mensagem ESP: ${err.message}`)
+  }
+}
+
+// Mapeia um botao fisico do robo para a acao correspondente do painel web, reusando
+// as MESMAS funcoes que os endpoints HTTP usam - assim robo e dashboard ficam em
+// sincronia (o estado propaga de volta pela interface via SSE).
+function tratarBotaoFisico(acao) {
+  switch (acao) {
+    case 'mute':
+      // Alterna o mute do mic (toggle "cego": o servidor e a fonte da verdade).
+      definirMicMutado(!micRoboMutado)
+      break
+    case 'interromper':
+      // Corta a fala do robo agora (parar-audio ao ESP) e aborta o pipeline.
+      interromperRobo()
+      break
+    case 'reset':
+      // Reinicia a conversa: cala a fala em curso e limpa o historico da sessao do
+      // usuario ativo do robo (memorias de longo prazo sao mantidas). require lazy
+      // de ./brain para evitar ciclo de dependencia no carregamento do modulo.
+      interromperRobo(false)   // o feedback aqui e o do reset, nao o de "pausa"
+      try {
+        const { limparConversa } = require('./brain')
+        limparConversa(usuarioAtivoRobo)
+        reagirResetConversa(usuarioAtivoRobo)
+      } catch (err) {
+        log('Aviso', `Falha ao limpar conversa pelo botao reset: ${err.message}`)
+      }
+      break
+    case 'camera':
+      // A webcam vive no NAVEGADOR: pede ao dashboard para alternar a camera do PC.
+      atividade.emitirComando('toggle-camera')
+      break
+    default:
+      log('Aviso', `Botao fisico com acao desconhecida: ${acao}`)
   }
 }
 
@@ -142,7 +189,6 @@ function configurarServidoresWebSocket(httpServer) {
   // compressao permessage-deflate; se o servidor negociar, o ESP nao decodifica
   // e cai. Ja e o padrao do 'ws', mas explicitamos para blindar.
   const wssControle = new WebSocketServer({ noServer: true, perMessageDeflate: false })
-  const wssCamera = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: config.ESP_MAX_FRAME_BYTES + 4096 })
 
   wssControle.on('connection', (ws, req) => {
     const id = crypto.randomBytes(4).toString('hex')
@@ -202,46 +248,26 @@ function configurarServidoresWebSocket(httpServer) {
     })
 
     ws.send(JSON.stringify({ tipo: 'bem-vindo', payload: { id, agora: Date.now() } }))
-  })
-
-  wssCamera.on('connection', (ws, req) => {
-    const id = crypto.randomBytes(4).toString('hex')
-    ws.metadata = { id }
-    conexoesCamera.set(id, ws)
-    configurarHeartbeat(ws)
-    log('ESP', `ESP-CAM conectada (id=${id}, total=${conexoesCamera.size})`)
-    broadcastEstado()
-
-    ws.on('message', (raw, isBinary) => {
-      if (!isBinary) {
-        try {
-          const dados = JSON.parse(raw.toString())
-          if (dados.tipo === 'status') {
-            ws.metadata = { ...ws.metadata, ...dados.payload }
-          }
-        } catch { /* ignora json invalido */ }
-        return
-      }
-
-      if (raw.length > config.ESP_MAX_FRAME_BYTES) {
-        log('Aviso', `Frame da ESP-CAM acima do limite (${raw.length} bytes), descartado`)
-        return
-      }
-
-      ultimoFrame.buffer = Buffer.from(raw)
-      ultimoFrame.recebidoEm = Date.now()
-      broadcastEstado()
-    })
-
-    ws.on('close', () => {
-      conexoesCamera.delete(id)
-      log('ESP', `ESP-CAM desconectada (id=${id}, total=${conexoesCamera.size})`)
-      broadcastEstado()
-    })
+    // Sincroniza o rosto (olhos) assim que o robo conecta, para uma reconexao no
+    // meio da conversa nao deixar a expressao defasada.
+    enviarExpressaoParaEsp(ws)
   })
 
   iniciarPing(wssControle)
-  iniciarPing(wssCamera)
+
+  // Espelha o estado da conversa (do pipeline, via esp-atividade) para os OLHOS do
+  // robo: a cada mudanca de estado, envia "expressao" ao ESP. O emitirEstado ja
+  // deduplica estados repetidos, entao isso nao floda o WebSocket.
+  atividade.registrarOuvinte((ev) => {
+    if (ev && ev.tipo === 'estado') {
+      ultimoEstadoConversa = ev.estado
+      enviarExpressaoParaEsp()
+    } else if (ev && ev.tipo === 'reacao') {
+      // Reacao pontual (elogio -> coracoes, piada -> riso...): repassa ao robo, que
+      // anima por alguns segundos SOBRE o rosto de estado e depois volta ao normal.
+      enviarReacaoParaEsp(ev.emocao)
+    }
+  })
 
   httpServer.on('upgrade', (req, socket, head) => {
     if (!tokenValido(req)) {
@@ -254,15 +280,13 @@ function configurarServidoresWebSocket(httpServer) {
 
     if (pathname === '/ws/esp') {
       wssControle.handleUpgrade(req, socket, head, (ws) => wssControle.emit('connection', ws, req))
-    } else if (pathname === '/ws/cam') {
-      wssCamera.handleUpgrade(req, socket, head, (ws) => wssCamera.emit('connection', ws, req))
     } else {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
       socket.destroy()
     }
   })
 
-  return { wssControle, wssCamera }
+  return { wssControle }
 }
 
 function enviarParaTodos(map, mensagem, opcoes = {}) {
@@ -280,6 +304,33 @@ function enviarParaTodos(map, mensagem, opcoes = {}) {
 }
 
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// BACKPRESSURE DO SOCKET: espera o buffer de TRANSMISSAO do socket (bufferedAmount)
+// drenar antes de injetar mais audio. Complementa o pacing por nivel REPORTADO pelo
+// robo, que e cego ao que esta represado no socket TCP a caminho. Sem esta guarda,
+// sob jitter de Wi-Fi o pacing despeja chunks a jato (pacingMin) num socket ja
+// congestionado -> a fila TCP incha -> o pong do heartbeat atrasa -> a lib do ESP
+// (pongTimeout) derruba a conexao "na fala". Ao segurar aqui, o ritmo real de envio
+// acompanha a vazao da rede. Registra o pico de bufferedAmount na conexao (diagnostico,
+// logado ao fim da fala). Retorna false se a fala foi cancelada/o socket fechou.
+async function aguardarSocketDrenar(ws, token) {
+  const teto = config.ESP_AUDIO_SOCKET_BACKLOG_MAX_BYTES
+  const registrarPico = () => {
+    if (ws.bufferedAmount > (ws.picoBufferedAmount || 0)) ws.picoBufferedAmount = ws.bufferedAmount
+  }
+  registrarPico()
+  if (!(teto > 0) || ws.bufferedAmount <= teto) return !token.cancelado
+  // Teto de seguranca: num socket patologicamente lento nao travamos o envio para
+  // sempre - passado o limite, seguimos (o heartbeat/readyState cuida de conexao morta).
+  const inicio = Date.now()
+  while (ws.bufferedAmount > teto) {
+    if (token.cancelado || ws.readyState !== ws.OPEN) return false
+    if (Date.now() - inicio > 1500) break
+    await esperar(config.ESP_AUDIO_PACING_MIN_MS)
+    registrarPico()
+  }
+  return !token.cancelado
+}
 
 // Envia o audio para UMA conexao em chunks pequenos, com CONTROLE DE FLUXO em
 // malha fechada (regulado pelo nivel de buffer que o robo reporta). Detalhes:
@@ -320,6 +371,10 @@ async function enviarBinarioEmChunks(ws, buffer, token) {
   let indice = 0
   for (let offset = 0; offset < buffer.length; offset += tamanho, indice++) {
     if (token.cancelado || ws.readyState !== ws.OPEN) return false
+    // Antes de mandar o proximo chunk, garante que o socket nao esta congestionado
+    // (segura se bufferedAmount passou do teto). Isto tambem impede que o ramo
+    // "abaixo do alvo" (pacingMin, mais abaixo) infle o socket sob jitter de rede.
+    if (!(await aguardarSocketDrenar(ws, token))) return false
     try {
       ws.send(buffer.subarray(offset, offset + tamanho), { binary: true })
     } catch (err) {
@@ -387,6 +442,7 @@ function enviarAudioParaConexao(ws, audioBuffer, metadata = {}) {
   // de fluxo herdaria o nivel final da fala anterior e seguraria demais no comeco.
   ws.nivelBufferMs = 0
   ws.nivelBufferEm = Date.now()
+  ws.picoBufferedAmount = 0
 
   try {
     // Informa formato e sample rate para o ESP saber como tocar (PCM vai direto
@@ -462,6 +518,10 @@ async function enviarLoteComPacing(ws, buffer, sessao) {
 
   for (let offset = 0; offset < buffer.length; offset += tamanho) {
     if (token.cancelado || ws.readyState !== ws.OPEN) return false
+    // Backpressure do socket: segura se a fila de transmissao TCP encheu (rede
+    // degradando). Evita que o ramo "abaixo do alvo" (pacingMin) despeje chunks
+    // num socket ja congestionado - a causa raiz da queda "na fala".
+    if (!(await aguardarSocketDrenar(ws, token))) return false
     try {
       ws.send(buffer.subarray(offset, offset + tamanho), { binary: true })
     } catch (err) {
@@ -565,6 +625,13 @@ async function bombearFalaStream(ws, sessao) {
     if (!token.cancelado && ws.readyState === ws.OPEN) {
       try { ws.send(JSON.stringify({ tipo: 'audio-fim' })) } catch { /* socket fechou */ }
     }
+    // Diagnostico: se o socket chegou a congestionar (pico > teto), registra. Em rede
+    // saudavel o pico fica ~0; picos altos apontam o jitter que ameacava a conexao.
+    // Inclui o heap minimo reportado na fala (pressao de memoria no firmware).
+    if (ws.picoBufferedAmount > config.ESP_AUDIO_SOCKET_BACKLOG_MAX_BYTES) {
+      const heapInfo = ws.heapMinFala != null ? `, heap min ${ws.heapMinFala}B` : ''
+      log('ESP', `Backpressure na fala de ${ws.metadata?.id || 'esp'}: pico de socket ${ws.picoBufferedAmount} bytes (segurou o envio)${heapInfo}`)
+    }
   } catch (err) {
     log('Aviso', `Bombeamento de fala (stream) interrompido: ${err.message}`)
   } finally {
@@ -586,6 +653,10 @@ function iniciarFalaStreamConexao(ws, metadata = {}) {
   // Robo zera a fila ao receber 'audio-inicio': comecamos assumindo buffer vazio.
   ws.nivelBufferMs = 0
   ws.nivelBufferEm = Date.now()
+  ws.picoBufferedAmount = 0   // diagnostico de backpressure: pico por fala
+  ws.heapMinFala = null       // diagnostico: heap minimo do firmware nesta fala
+
+
 
   try {
     ws.send(JSON.stringify({
@@ -704,10 +775,14 @@ function definirUsuarioAtivo(usuarioId) {
 // mic do robo (robo mudo). A interface liga (toggle "Controlar robo") dentro de um
 // perfil e desliga ao sair do perfil. Ao desligar, corta qualquer fala em curso.
 function definirRoboHabilitado(valor) {
+  const anterior = roboHabilitado
   roboHabilitado = !!valor
   if (!roboHabilitado) {
     for (const ws of conexoesControle.values()) pararAudioRobo(ws)
   }
+  // Entrar/sair do modo robo e o "oi"/"tchau" da sessao. So na MUDANCA: a interface
+  // reenvia o estado ao trocar de perfil e o robo nao deve piscar o rosto a toa.
+  if (roboHabilitado !== anterior) atividade.emitirReacao(roboHabilitado ? 'ola' : 'tchau')
   broadcastEstado()
   return roboHabilitado
 }
@@ -716,37 +791,71 @@ function definirRoboHabilitado(valor) {
 // meio de uma fala, forca o fim-de-fala (intencao "terminei, pode pensar"),
 // espelhando o comportamento do mic do navegador.
 function definirMicMutado(valor) {
+  const anterior = micRoboMutado
   micRoboMutado = !!valor
   if (micRoboMutado) {
     for (const ws of conexoesControle.values()) {
       forcarFimDeFala(ws.idConexao, ws.callbacks)
     }
   }
+  // Feedback nos olhos (icone de mic riscado/com ondas). Este e o ponto UNICO por
+  // onde passam o botao web (POST /api/esp/mic) e o botao fisico (tratarBotaoFisico),
+  // entao a animacao sai igual nos dois. So na MUDANCA, para nao repetir a cada
+  // sincronizacao de estado da interface.
+  if (micRoboMutado !== anterior) atividade.emitirReacao(micRoboMutado ? 'mic-off' : 'mic-on')
   broadcastEstado()
+  enviarExpressaoParaEsp()   // reflete o mute nos olhos do robo na hora
   return micRoboMutado
 }
 
 // Interrompe o robo (botao "Parar" / Reset da interface): CORTA a fala fisica
 // na hora (cancela envio + parar-audio) e encerra a janela de fala/captura no
 // pipeline, em todas as conexoes de controle.
-function interromperRobo() {
+// `comFeedback=false` para quem ja vai mostrar a propria animacao logo em seguida
+// (o reset interrompe ANTES de limpar o contexto - sem isso o rosto piscaria "pausa"
+// e trocaria pra "recomecar" no mesmo segundo).
+function interromperRobo(comFeedback = true) {
   let total = 0
   for (const ws of conexoesControle.values()) {
     pararAudioRobo(ws)                 // cala o alto-falante do robo agora
     if (interromper(ws.idConexao)) total++   // aborta pipeline/captura
   }
+  if (comFeedback) atividade.emitirReacao('parar')
   return total
 }
 
-function obterUltimoFrame() {
-  if (!ultimoFrame.buffer) return null
-  if (Date.now() - ultimoFrame.recebidoEm > 5000) return null
-  return ultimoFrame.buffer
+// Feedback do "limpar contexto". Fica aqui (e nao dentro de limparConversa, no brain)
+// porque a conversa e limpavel por qualquer perfil da interface: o robo so deve
+// reagir quando quem foi resetado e o perfil que ELE esta usando agora.
+function reagirResetConversa(usuarioId) {
+  if (usuarioId && usuarioId !== usuarioAtivoRobo) return false
+  atividade.emitirReacao('reset')
+  return true
 }
 
-function obterUltimoFrameBase64() {
-  const buf = obterUltimoFrame()
-  return buf ? buf.toString('base64') : null
+// Feedback da webcam (que vive no NAVEGADOR - o servidor nao tem como saber sozinho
+// se ela ligou). O dashboard avisa por POST /api/esp/camera, tanto no clique do botao
+// da interface quanto quando o botao FISICO manda ele alternar a camera.
+function reagirCamera(ativa) {
+  atividade.emitirReacao(ativa ? 'camera-on' : 'camera-off')
+  return !!ativa
+}
+
+// Envia ao robo a expressao atual (estado da conversa + mute) para os OLHOS da tela
+// OLED reagirem. Se `ws` for informado, manda so para aquela conexao (ex.: logo apos
+// o robo conectar, para sincronizar o rosto); sem `ws`, faz broadcast para todas.
+function enviarExpressaoParaEsp(ws = null) {
+  const payload = { estado: ultimoEstadoConversa, mutado: micRoboMutado }
+  if (ws) return enviarComandoParaConexao(ws, 'expressao', payload)
+  return enviarComando('expressao', payload)
+}
+
+// Envia uma REACAO pontual (emocao) ao robo para os olhos animarem por alguns
+// segundos. Broadcast para todas as conexoes de controle (no MVP ha 1 robo). O
+// firmware mapeia a emocao no enum Reacao e sobrepoe a animacao ao rosto de estado.
+function enviarReacaoParaEsp(emocao) {
+  if (!emocao) return 0
+  return enviarComando('reacao', { emocao })
 }
 
 function registrarOuvinteEstado(callback) {
@@ -762,11 +871,11 @@ module.exports = {
   enfileirarPcmFalaRobo,
   finalizarFalaStreamRobo,
   enviarComando,
-  obterUltimoFrame,
-  obterUltimoFrameBase64,
   registrarOuvinteEstado,
   definirUsuarioAtivo,
   definirMicMutado,
   definirRoboHabilitado,
   interromperRobo,
+  reagirResetConversa,
+  reagirCamera,
 }
