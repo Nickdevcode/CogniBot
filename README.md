@@ -90,7 +90,7 @@ Tudo construído com o que há de mais atual e estável (verificado em **junho/2
 | Função | Modelo | O que faz |
 | --- | --- | --- |
 | 👂 **Ouvir** (STT) | `gpt-4o-mini-transcribe` | Transforma a voz em texto (com `whisper-1` de reserva) |
-| 💭 **Pensar** (chat) | `gpt-4o-mini` | Gera a resposta da conversa |
+| 💭 **Pensar** (chat) | `gpt-5.4-mini` | Gera a resposta da conversa (modelo de **raciocínio**; as tarefas de apoio — triagem, memória, dica, resumo — usam o `gpt-4o-mini`, mais barato) |
 | 👁️ **Ver** (visão) | `gpt-4o` | Entende as imagens da câmera |
 | 🌐 **Buscar** (web) | `gpt-4o-mini-search-preview` | Pesquisa na internet quando precisa de info atual |
 | 🗣️ **Falar** (TTS) | `gpt-4o-mini-tts` | Gera a voz natural da Cogni |
@@ -501,8 +501,8 @@ Os ajustes ficam no `.env` (com valores bons por padrão):
 
 | Variável | Padrão | O que controla |
 | --- | --- | --- |
-| `ESP_AUDIO_BUFFER_ALVO_MS` | `320` | Quanto áudio (em ms) o robô tenta manter guardado |
-| `ESP_AUDIO_BUFFER_TETO_MS` | `520` | O limite máximo antes do servidor segurar o envio |
+| `ESP_AUDIO_BUFFER_ALVO_MS` | `550` | Quanto áudio (em ms) o robô tenta manter guardado |
+| `ESP_AUDIO_BUFFER_TETO_MS` | `850` | O limite máximo antes do servidor segurar o envio |
 | `ESP_AUDIO_BURST_CHUNKS` | `4` | Quantos pedaços vão "de largada" pra encher o colchão inicial |
 
 ### ⚡ Resposta mais rápida (fala por sentença)

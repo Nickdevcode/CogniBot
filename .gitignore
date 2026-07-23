@@ -16,11 +16,14 @@ Thumbs.db
 server/dados/*
 !server/dados/usuarios.json
 
-# Documentacao: versionamos so a doc tecnica em Markdown (visao + plano tecnico
-# do Companion), que faz parte do projeto. Os .docx pesados (artigo cientifico,
-# lista de componentes) ficam de fora do Git. Mesmo padrao do server/dados/.
+# Documentacao: versionamos a doc tecnica em Markdown (visao + plano tecnico
+# do Companion) e a documentacao tecnica em HTML (a "tela" completa dos tres
+# lados, feita pro grupo estudar) — ambas fazem parte do projeto. Os .docx
+# pesados (artigo cientifico, lista de componentes) ficam de fora do Git.
+# Mesmo padrao do server/dados/.
 docs/*
 !docs/*.md
+!docs/*.html
 
 *.tmp
 *.tmp.*

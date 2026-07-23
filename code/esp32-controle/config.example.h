@@ -327,8 +327,8 @@
 //   - Cada bloco precisa caber UM chunk do servidor (4KB) com folga.
 //   - DIMENSIONAMENTO: o servidor controla o fluxo por um nivel-ALVO de buffer e
 //     NUNCA empurra mais que ESP_AUDIO_BUFFER_TETO_MS de audio para o robo. A
-//     ~85ms por bloco (4096B / 48 B/ms), o teto (520ms) cabe em ~6 blocos. 12
-//     blocos cobrem ~1020ms (quase 2x o teto) com larga folga para jitter, e
+//     ~85ms por bloco (4096B / 48 B/ms), o teto atual (850ms) cabe em ~10 blocos.
+//     12 blocos cobrem ~1020ms (o teto + ~2 blocos de folga para jitter) e
 //     reservam so ~55KB de heap.
 //   - ATENCAO (NAO volte para 28): 28 blocos reservavam ~126KB. Como o WiFi e o
 //     WebSocket ja consomem heap, o pool grande deixava so ~56KB livres e a
